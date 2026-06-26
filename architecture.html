@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8" />
+  <title>Opportunity Scan – Arkitektur</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: #f5f5f3;
+      padding: 2.5rem;
+      color: #1a1a1a;
+    }
+    header {
+      background: #1a3a5c;
+      color: #fff;
+      padding: 1.25rem 2rem;
+      border-radius: 10px;
+      margin-bottom: 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    header .logo { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #a0b8cc; }
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    .divider { width: 1px; height: 1.2rem; background: #3a5f80; }
+    .card {
+      background: #fff;
+      border: 1px solid #e0ddd8;
+      border-radius: 10px;
+      padding: 2rem;
+      margin-bottom: 2rem;
+      overflow-x: auto;
+    }
+    .card h2 {
+      font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: #6b6b6b; margin-bottom: 1.5rem;
+    }
+    .mermaid { min-width: 900px; }
+
+    .legend { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 1.5rem; }
+    .legend-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: #444; }
+    .legend-dot { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; padding: 0.5rem 0.75rem; font-size: 0.75rem; font-weight: 600;
+         text-transform: uppercase; letter-spacing: 0.06em; color: #6b6b6b; border-bottom: 2px solid #e0ddd8; }
+    td { padding: 0.6rem 0.75rem; border-bottom: 1px solid #f0ede8; vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    td:first-child { font-weight: 600; color: #1a3a5c; white-space: nowrap; }
+    code { background: #f0ede8; padding: 0.1rem 0.35rem; border-radius: 3px;
+           font-size: 0.78rem; font-family: "SF Mono", "Fira Code", monospace; }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="logo">Internt</span>
+  <div class="divider"></div>
+  <h1>Opportunity Scan — Systemarkitektur</h1>
+</header>
+
+<!-- FLÖDESDIAGRAM -->
+<div class="card">
+  <h2>Flödesdiagram</h2>
+  <div class="mermaid">
+flowchart LR
+
+  subgraph FE["Webbläsare"]
+    UP["PDF-uppladdning\n1–5 filer, max 500 MB/fil"]
+    UI["Streaming-visning\nmarked.js"]
+    SAVEFN["saveScan\nHitta SCAN_DATA-blocket\nRegex-fallback om det saknas"]
+    DBTAB["Databas-flik\nTabell med ELIR-nyckeltal"]
+    EXP["Export\nExcel via SheetJS\nPDF via html2pdf.js"]
+  end
+
+  subgraph API["FastAPI-server  (main.py, port 8000)"]
+    R1["GET /\nindex.html"]
+    R2["POST /analyze\nPDF-pipeline + streaming"]
+    R3["POST /save\nSparar scan"]
+    R4["GET /scans\nListar alla"]
+    R5["GET /scans/id\nHamtar en scan"]
+    R6["DELETE /scans/id"]
+  end
+
+  subgraph PIPE["PDF-pipeline"]
+    PA["PyMuPDF\nTextextraktion"]
+    PB["pdfminer.six\nFallback"]
+    PC["Base64\nSkannade PDFer"]
+    PD["Komprimering\nDPI 96 till 24\nMal under 4 MB"]
+    PE["Sidbudget\n100 sidor delat pa antal filer"]
+    PA -->|"text OK"| PTXT["Som text-block"]
+    PA -->|"tomt"| PB
+    PB -->|"text OK"| PTXT
+    PB -->|"tomt"| PC
+    PC --> PD --> PE --> PB64["Som base64-dokument"]
+  end
+
+  subgraph LLM["AWS Bedrock"]
+    MDL["Claude Sonnet 4.6\nus.anthropic.claude-sonnet-4-6\nmax_tokens 6000, streaming"]
+  end
+
+  subgraph ELIR["Systempromt — ELIR-regelverket"]
+    direction LR
+    E1["STEG 1\nDatainsamling"] --> E2["STEG 2\nAffarslogik"] --> E3["STEG 3\nE Exponering"]
+    E3 --> E4["STEG 4\nL Lackage\n6 drivare"] --> E5["STEG 5\nI Forbattring\n5 drivare"]
+    E5 --> E6["STEG 6\nR Realisering\n4 drivare"] --> E7["STEG 7\nRapport"] --> E8["STEG 8\nSCAN_DATA-block\nObligatoriskt JSON"]
+  end
+
+  subgraph DB["SQLite  (scans.db)"]
+    TBL["scans\nid, created_at, company_name, industry\nrevenue, ebit, ebit_margin\nyears_analyzed, variation_score\ne_msek, e_pct\nl_msek, l_pct\ni_msek, i_pct\nr_msek, r_pct\ntotal_potential_msek\nconfidence, report_markdown"]
+  end
+
+  UP -->|"multipart/form-data"| R2
+  R2 --> PIPE
+  PTXT --> MDL
+  PB64 --> MDL
+  ELIR -.->|"system prompt"| MDL
+  MDL -->|"text/plain chunked"| UI
+  UI --> SAVEFN
+  SAVEFN -->|"POST /save"| R3
+  R3 --> TBL
+  TBL --> R4 --> DBTAB
+  TBL --> R5 --> DBTAB
+  R6 --> TBL
+  DBTAB --> EXP
+  R1 --> FE
+
+  style FE   fill:#e8eef4,stroke:#1a3a5c,color:#111
+  style API  fill:#eaf4ea,stroke:#2d6a4f,color:#111
+  style PIPE fill:#fff8e8,stroke:#b5800a,color:#111
+  style LLM  fill:#fdecea,stroke:#9b2226,color:#111
+  style DB   fill:#f0eafa,stroke:#5a3d8a,color:#111
+  style ELIR fill:#f5f5f5,stroke:#aaa,color:#111
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#e8eef4;border:1px solid #1a3a5c"></div>Webbläsare</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#eaf4ea;border:1px solid #2d6a4f"></div>FastAPI-server</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#fff8e8;border:1px solid #b5800a"></div>PDF-pipeline</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#fdecea;border:1px solid #9b2226"></div>AWS Bedrock / LLM</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f0eafa;border:1px solid #5a3d8a"></div>SQLite-databas</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f5f5f5;border:1px solid #aaa"></div>Systempromt</div>
+  </div>
+</div>
+
+<!-- API-ENDPOINTS -->
+<div class="card">
+  <h2>API-endpoints</h2>
+  <table>
+    <thead>
+      <tr><th>Metod</th><th>Sökväg</th><th>Beskrivning</th><th>In</th><th>Ut</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>GET</td><td><code>/</code></td><td>Startsida</td><td>–</td><td>HTML</td></tr>
+      <tr><td>POST</td><td><code>/analyze</code></td><td>Kör ELIR-analys</td><td>1–5 PDF-filer (multipart)</td><td>text/plain streaming</td></tr>
+      <tr><td>POST</td><td><code>/save</code></td><td>Spara scan</td><td>report_markdown + scan_json</td><td><code>{"id": N}</code></td></tr>
+      <tr><td>GET</td><td><code>/scans</code></td><td>Lista alla scans</td><td>–</td><td>JSON-array (utan rapporttext)</td></tr>
+      <tr><td>GET</td><td><code>/scans/{id}</code></td><td>Hämta en scan</td><td>–</td><td>JSON inkl. rapporttext</td></tr>
+      <tr><td>DELETE</td><td><code>/scans/{id}</code></td><td>Ta bort scan</td><td>–</td><td><code>{"ok": true}</code></td></tr>
+      <tr><td>GET</td><td><code>/architecture</code></td><td>Denna sida</td><td>–</td><td>HTML</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- TEKNIKSTACK -->
+<div class="card">
+  <h2>Komponenter och tekniker</h2>
+  <table>
+    <thead><tr><th>Komponent</th><th>Teknik</th><th>Syfte</th></tr></thead>
+    <tbody>
+      <tr><td>Backend</td><td>Python · FastAPI · Uvicorn</td><td>REST-API, streaming, databaslogik</td></tr>
+      <tr><td>LLM</td><td>AWS Bedrock · Claude Sonnet 4.6</td><td>ELIR-analys av årsredovisningar</td></tr>
+      <tr><td>PDF — text</td><td>PyMuPDF (fitz) · pdfminer.six</td><td>Extrahera text ur digitala PDFer</td></tr>
+      <tr><td>PDF — bild</td><td>PyMuPDF grayscale re-render</td><td>Komprimera skannade PDFer till under 4 MB</td></tr>
+      <tr><td>Databas</td><td>SQLite (scans.db)</td><td>Lagra ELIR-nyckeltal och rapporttext</td></tr>
+      <tr><td>Frontend</td><td>Vanilla JS · marked.js · SheetJS · html2pdf.js</td><td>UI, Markdown-rendering, Excel- och PDF-export</td></tr>
+      <tr><td>Autentisering</td><td>.env med AWS-nycklar</td><td>AWS_ACCESS_KEY_ID · AWS_SECRET_ACCESS_KEY · AWS_DEFAULT_REGION</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: "default", flowchart: { curve: "basis", useMaxWidth: false } });
+</script>
+</body>
+</html>

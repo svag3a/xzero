@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NDA-generator – Cloud Enablers</title>
+<style>
+  :root {
+    --navy:        #1a2744;
+    --accent:      #2563eb;
+    --accent-light:#eff6ff;
+    --text:        #1a1a1a;
+    --muted:       #6b7280;
+    --border:      #e2e8f0;
+    --bg:          #f8fafc;
+    --white:       #ffffff;
+    --success:     #16a34a;
+    --warning:     #d97706;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+
+  /* ── Layout ── */
+  .page-header {
+    background: var(--navy);
+    color: #fff;
+    padding: 1rem 2rem;
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+  .page-header h1 { font-size: 1.1rem; font-weight: 600; }
+  .page-header a { color: rgba(255,255,255,0.7); text-decoration: none; font-size: 0.85rem; }
+  .page-header a:hover { color: #fff; }
+
+  .container {
+    max-width: 900px;
+    margin: 2rem auto;
+    padding: 0 1.5rem 4rem;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+  }
+  .card-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ── Forms ── */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .form-grid.single { grid-template-columns: 1fr; }
+  .form-group { display: flex; flex-direction: column; gap: 0.3rem; }
+  .form-group label { font-size: 0.8rem; font-weight: 500; color: var(--muted); }
+  .form-group input,
+  .form-group select,
+  .form-group textarea {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+    font-family: inherit;
+    background: #fff;
+    transition: border-color 0.15s;
+  }
+  .form-group input:focus,
+  .form-group select:focus,
+  .form-group textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-light);
+  }
+  .form-group textarea { resize: vertical; min-height: 80px; }
+  .required-star { color: #dc2626; }
+
+  /* ── Two-column party grid ── */
+  .parties-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+  .party-col h3 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: 4px;
+  }
+  .party-col.part-a h3 { background: var(--navy); color: #fff; }
+  .party-col.part-b h3 { background: var(--accent); color: #fff; }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.15s;
+    font-family: inherit;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary {
+    background: #fff;
+    color: var(--text);
+    border-color: var(--border);
+  }
+  .btn-secondary:hover { background: var(--bg); }
+  .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-outline {
+    background: transparent;
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .btn-outline:hover { background: var(--accent-light); }
+
+  .action-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    margin-top: 1rem;
+  }
+
+  /* ── Scan selector ── */
+  .scan-selector {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+  }
+  .scan-selector select { flex: 1; }
+
+  /* ── Preview ── */
+  #nda-preview {
+    white-space: pre-wrap;
+    font-family: "Georgia", serif;
+    font-size: 0.88rem;
+    line-height: 1.7;
+    color: var(--text);
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2rem;
+    max-height: 600px;
+    overflow-y: auto;
+  }
+  #nda-preview .nda-title {
+    text-align: center;
+    font-weight: bold;
+    font-size: 1.1rem;
+    margin-bottom: 0.25rem;
+  }
+  #nda-preview .nda-subtitle {
+    text-align: center;
+    font-size: 0.9rem;
+    margin-bottom: 2rem;
+    color: var(--muted);
+  }
+  #nda-preview .nda-section-heading {
+    font-weight: bold;
+    margin: 1.5rem 0 0.5rem;
+    font-size: 0.9rem;
+    color: var(--navy);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  #nda-preview .nda-body { margin-bottom: 0.75rem; }
+  #nda-preview .nda-bullet { margin-left: 1.5rem; margin-bottom: 0.3rem; }
+  #nda-preview .nda-sig-block { margin-top: 1rem; }
+  #nda-preview .nda-sig-line { border-bottom: 1px solid #999; width: 260px; margin-bottom: 0.3rem; height: 1.5rem; }
+
+  /* ── Validation error ── */
+  .error-box {
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    color: #dc2626;
+    font-size: 0.85rem;
+    display: none;
+  }
+  .warning-box {
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+    border-radius: 6px;
+    padding: 0.6rem 1rem;
+    color: var(--warning);
+    font-size: 0.85rem;
+    display: none;
+  }
+
+  /* ── Status badges ── */
+  .badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 99px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .badge-draft    { background: #f1f5f9; color: var(--muted); }
+  .badge-generated { background: #eff6ff; color: var(--accent); }
+  .badge-signed   { background: #f0fdf4; color: var(--success); }
+
+  /* ── Saved NDAs list ── */
+  .nda-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+    gap: 1rem;
+  }
+  .nda-list-item:last-child { border-bottom: none; }
+  .nda-list-meta { font-size: 0.82rem; color: var(--muted); }
+
+  @media (max-width: 640px) {
+    .parties-grid, .form-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <a href="/" onclick="history.length>1?history.back():location.href='/';return false;">&#8592; Tillbaka</a>
+  </div>
+  <h1>NDA-generator</h1>
+</div>
+
+<div class="container">
+
+  <!-- 1. Välj scan/kund -->
+  <div class="card">
+    <div class="card-title">1. Vald kund</div>
+    <div class="scan-selector">
+      <select id="scan-select" style="max-width:400px">
+        <option value="">– Välj scan/företag eller fyll i manuellt nedan –</option>
+      </select>
+      <button class="btn btn-secondary" onclick="clearScanSelection()">Rensa</button>
+    </div>
+    <p style="margin-top:0.6rem;font-size:0.8rem;color:var(--muted)">
+      Välj ett befintligt bolag för att fylla i uppgifter automatiskt, eller lämna tomt och fyll i manuellt.
+    </p>
+  </div>
+
+  <!-- 2. Parter -->
+  <div class="card">
+    <div class="card-title">2. Parter</div>
+    <div class="parties-grid">
+      <div class="party-col part-a">
+        <h3>Part A – Cloud Enablers</h3>
+        <div style="display:flex;flex-direction:column;gap:0.75rem">
+          <div class="form-group">
+            <label>Företagsnamn <span class="required-star">*</span></label>
+            <input id="a-name" type="text" value="Cloud Enablers AB">
+          </div>
+          <div class="form-group">
+            <label>Organisationsnummer <span class="required-star">*</span></label>
+            <input id="a-org" type="text" value="556957-5078">
+          </div>
+          <div class="form-group">
+            <label>Adress</label>
+            <input id="a-address" type="text" value="Stora Badhusgatan 18, 411 21 Göteborg">
+          </div>
+          <div class="form-group">
+            <label>Kontaktperson</label>
+            <input id="a-contact" type="text" value="Mats Wessberg">
+          </div>
+        </div>
+      </div>
+      <div class="party-col part-b">
+        <h3>Part B – Kund</h3>
+        <div style="display:flex;flex-direction:column;gap:0.75rem">
+          <div class="form-group">
+            <label>Företagsnamn <span class="required-star">*</span></label>
+            <input id="b-name" type="text" placeholder="Kundens företagsnamn">
+          </div>
+          <div class="form-group">
+            <label>Organisationsnummer <span class="required-star">*</span></label>
+            <input id="b-org" type="text" placeholder="556xxx-xxxx">
+          </div>
+          <div class="form-group">
+            <label>Adress</label>
+            <input id="b-address" type="text" placeholder="Gatuadress, postnummer ort">
+          </div>
+          <div class="form-group">
+            <label>Kontaktperson</label>
+            <input id="b-contact" type="text" placeholder="Namn (valfritt)">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="warning-box" id="address-warning" style="margin-top:1rem">
+      Adress saknas för en eller båda parter. NDA kan ändå genereras.
+    </div>
+  </div>
+
+  <!-- 3. Signerande personer -->
+  <div class="card">
+    <div class="card-title">3. Signerande personer</div>
+    <div class="parties-grid">
+      <div>
+        <p style="font-size:0.8rem;font-weight:600;margin-bottom:0.75rem;color:var(--navy)">Part A – Cloud Enablers</p>
+        <div style="display:flex;flex-direction:column;gap:0.75rem">
+          <div class="form-group">
+            <label>Namn <span class="required-star">*</span></label>
+            <input id="sa-name" type="text" value="Mats Wessberg">
+          </div>
+          <div class="form-group">
+            <label>Titel/roll</label>
+            <input id="sa-title" type="text" placeholder="t.ex. VD">
+          </div>
+        </div>
+      </div>
+      <div>
+        <p style="font-size:0.8rem;font-weight:600;margin-bottom:0.75rem;color:var(--accent)">Part B – Kund</p>
+        <div style="display:flex;flex-direction:column;gap:0.75rem">
+          <div class="form-group">
+            <label>Namn <span class="required-star">*</span></label>
+            <input id="sb-name" type="text" placeholder="Kundens firmatecknare">
+          </div>
+          <div class="form-group">
+            <label>Titel/roll</label>
+            <input id="sb-title" type="text" placeholder="t.ex. VD">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Datum, ort och syfte -->
+  <div class="card">
+    <div class="card-title">4. Datum, ort och syfte</div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Ikraftträdandedatum <span class="required-star">*</span></label>
+        <input id="effective-date" type="date">
+      </div>
+      <div class="form-group">
+        <label>Ort <span class="required-star">*</span></label>
+        <input id="place" type="text" value="Göteborg">
+      </div>
+    </div>
+    <div class="form-group" style="margin-top:0.75rem">
+      <label>Syfte (punkt 2 – bakgrund och samarbete)</label>
+      <textarea id="purpose" rows="3">IT-konsulttjänster, dataanalys, AI-, maskininlärnings- och beslutsstödsrelaterade tjänster ("Uppdragen").</textarea>
+    </div>
+  </div>
+
+  <!-- 5. Särskilda villkor -->
+  <div class="card">
+    <div class="card-title">5. Särskilda villkor (punkt 12)</div>
+    <div class="form-group">
+      <textarea id="special-terms" rows="4">Detta Avtal är ömsesidigt. Båda parter ska betraktas som såväl Utlämnare som Mottagare enligt detta Avtal.</textarea>
+    </div>
+  </div>
+
+  <!-- Felmeddelande -->
+  <div class="error-box" id="error-box"></div>
+
+  <!-- 6. Generera-knapp -->
+  <div class="card" style="background:var(--accent-light);border-color:#bfdbfe">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+      <div>
+        <p style="font-weight:600;margin-bottom:0.25rem">Generera NDA</p>
+        <p style="font-size:0.82rem;color:var(--muted)">Skapar fullständigt sekretessavtal och sparar det kopplat till valt företag.</p>
+      </div>
+      <button class="btn btn-primary" id="generate-btn" onclick="generateNda()">
+        &#128196; Generera NDA
+      </button>
+    </div>
+  </div>
+
+  <!-- 7. Förhandsgranska / Ladda ned -->
+  <div class="card" id="preview-card" style="display:none">
+    <div class="card-title">6. Förhandsgranska NDA</div>
+    <div id="nda-preview"></div>
+    <div class="action-row">
+      <button class="btn btn-primary" id="pdf-btn" onclick="downloadPdf()">&#11015; Ladda ned PDF</button>
+      <button class="btn btn-secondary" onclick="copyText()">&#128203; Kopiera text</button>
+      <span id="copy-feedback" style="font-size:0.82rem;color:var(--success);display:none">Kopierat!</span>
+      <span style="flex:1"></span>
+      <select id="status-select" style="font-size:0.82rem;border:1px solid var(--border);border-radius:6px;padding:0.3rem 0.5rem;background:#fff">
+        <option value="draft">Utkast</option>
+        <option value="generated" selected>Genererat</option>
+        <option value="signed">Signerat</option>
+        <option value="archived">Arkiverat</option>
+      </select>
+      <button class="btn btn-secondary" onclick="updateStatus()">Spara status</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const CLOUD_ENABLERS = {
+  name:    "Cloud Enablers AB",
+  org:     "556957-5078",
+  address: "Stora Badhusgatan 18, 411 21 Göteborg",
+  contact: "Mats Wessberg",
+};
+
+let currentNdaId = null;
+let currentNdaText = "";
+
+// ── Init ─────────────────────────────────────────────────────────────────
+
+document.addEventListener("DOMContentLoaded", () => {
+  // Set today's date
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById("effective-date").value = today;
+
+  loadScans();
+
+  // Pre-fill from URL params
+  const params = new URLSearchParams(location.search);
+  const scanId = params.get("scan_id");
+  if (scanId) {
+    fetchAndFillScan(scanId);
+  }
+});
+
+async function loadScans() {
+  try {
+    const res = await fetch("/scans");
+    const scans = await res.json();
+    const sel = document.getElementById("scan-select");
+    scans.forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s.id;
+      const date = s.created_at ? s.created_at.slice(0, 10) : "";
+      opt.textContent = `${s.company_name || "Okänt bolag"} — ${date}`;
+      opt.dataset.company = s.company_name || "";
+      sel.appendChild(opt);
+    });
+    sel.addEventListener("change", () => {
+      const opt = sel.selectedOptions[0];
+      if (opt && opt.value) {
+        fetchAndFillScan(opt.value);
+      }
+    });
+  } catch (e) {
+    console.warn("Kunde inte ladda scannar:", e);
+  }
+}
+
+async function fetchAndFillScan(scanId) {
+  try {
+    const res = await fetch("/scans/" + scanId);
+    if (!res.ok) return;
+    const scan = await res.json();
+    document.getElementById("b-name").value    = scan.company_name || "";
+    document.getElementById("b-org").value     = scan.org_number   || "";
+    document.getElementById("b-address").value = scan.address      || "";
+    // Also select the option in the dropdown
+    const sel = document.getElementById("scan-select");
+    for (const opt of sel.options) {
+      if (opt.value == scanId) { sel.value = scanId; break; }
+    }
+  } catch (e) {
+    console.warn("Kunde inte hämta scan:", e);
+  }
+}
+
+function clearScanSelection() {
+  document.getElementById("scan-select").value = "";
+  document.getElementById("b-name").value    = "";
+  document.getElementById("b-org").value     = "";
+  document.getElementById("b-address").value = "";
+  document.getElementById("b-contact").value = "";
+}
+
+// ── Validate ──────────────────────────────────────────────────────────────
+
+function validate() {
+  const required = [
+    ["a-name",         "Part A: företagsnamn"],
+    ["a-org",          "Part A: organisationsnummer"],
+    ["b-name",         "Part B: företagsnamn"],
+    ["b-org",          "Part B: organisationsnummer"],
+    ["sa-name",        "Signerande person (Part A)"],
+    ["sb-name",        "Signerande person (Part B)"],
+    ["effective-date", "Datum"],
+    ["place",          "Ort"],
+  ];
+  const missing = required
+    .filter(([id]) => !document.getElementById(id).value.trim())
+    .map(([, label]) => label);
+
+  if (missing.length) {
+    showError("Obligatoriska fält saknas: " + missing.join(", "));
+    return false;
+  }
+
+  // Address warning
+  const missingAddr =
+    !document.getElementById("a-address").value.trim() ||
+    !document.getElementById("b-address").value.trim();
+  document.getElementById("address-warning").style.display = missingAddr ? "block" : "none";
+
+  hideError();
+  return true;
+}
+
+function showError(msg) {
+  const el = document.getElementById("error-box");
+  el.textContent = msg;
+  el.style.display = "block";
+  el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+function hideError() {
+  document.getElementById("error-box").style.display = "none";
+}
+
+// ── Generate ──────────────────────────────────────────────────────────────
+
+async function generateNda() {
+  if (!validate()) return;
+
+  const btn = document.getElementById("generate-btn");
+  btn.disabled = true;
+  btn.textContent = "Genererar...";
+
+  const scanSel = document.getElementById("scan-select");
+  const scanId  = scanSel.value ? parseInt(scanSel.value) : null;
+
+  const body = {
+    scan_id:       scanId,
+    party_a: {
+      company_name:        document.getElementById("a-name").value.trim(),
+      organization_number: document.getElementById("a-org").value.trim(),
+      address:             document.getElementById("a-address").value.trim(),
+      contact_person:      document.getElementById("a-contact").value.trim(),
+    },
+    party_b: {
+      company_name:        document.getElementById("b-name").value.trim(),
+      organization_number: document.getElementById("b-org").value.trim(),
+      address:             document.getElementById("b-address").value.trim(),
+      contact_person:      document.getElementById("b-contact").value.trim(),
+    },
+    signer_a: {
+      name:  document.getElementById("sa-name").value.trim(),
+      title: document.getElementById("sa-title").value.trim(),
+    },
+    signer_b: {
+      name:  document.getElementById("sb-name").value.trim(),
+      title: document.getElementById("sb-title").value.trim(),
+    },
+    effective_date: document.getElementById("effective-date").value,
+    place:          document.getElementById("place").value.trim(),
+    purpose:        document.getElementById("purpose").value.trim(),
+    special_terms:  document.getElementById("special-terms").value.trim(),
+    status:         "generated",
+  };
+
+  try {
+    const res = await fetch("/api/nda", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Okänt fel" }));
+      throw new Error(err.detail);
+    }
+    const data = await res.json();
+    currentNdaId   = data.id;
+    currentNdaText = data.generated_text;
+    renderPreview(currentNdaText);
+    document.getElementById("preview-card").style.display = "block";
+    document.getElementById("preview-card").scrollIntoView({ behavior: "smooth" });
+  } catch (e) {
+    showError("Kunde inte generera NDA: " + e.message);
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = "&#128196; Generera NDA";
+}
+
+// ── Preview ───────────────────────────────────────────────────────────────
+
+function renderPreview(text) {
+  const el = document.getElementById("nda-preview");
+  const lines = text.split("\n");
+  let html = "";
+  let inSigBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+
+    if (line === "SEKRETESSAVTAL (NDA)") {
+      html += `<div class="nda-title">${line}</div>`;
+    } else if (line === "Non-Disclosure Agreement") {
+      html += `<div class="nda-subtitle">${line}</div>`;
+    } else if (/^\d+\.\s+[A-ZÅÄÖ]/.test(line)) {
+      html += `<div class="nda-section-heading">${escHtml(line)}</div>`;
+    } else if (line.startsWith("PART A") || line.startsWith("PART B")) {
+      inSigBlock = true;
+      html += `<div class="nda-sig-block"><strong>${escHtml(line)}</strong></div>`;
+    } else if (inSigBlock && line.startsWith("_")) {
+      html += `<div class="nda-sig-line"></div>`;
+    } else if (line.startsWith("– ") || line.startsWith("- ")) {
+      html += `<div class="nda-bullet">${escHtml(line)}</div>`;
+    } else if (line === "") {
+      html += "<br>";
+    } else {
+      html += `<div class="nda-body">${escHtml(line)}</div>`;
+    }
+  }
+  el.innerHTML = html;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────
+
+async function downloadPdf() {
+  if (!currentNdaId) return;
+  const btn = document.getElementById("pdf-btn");
+  btn.disabled = true;
+  btn.textContent = "Genererar PDF...";
+  try {
+    const res = await fetch("/api/nda/" + currentNdaId + "/pdf");
+    if (!res.ok) throw new Error("PDF-generering misslyckades");
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    const bName = document.getElementById("b-name").value.replace(/\s+/g, "-") || "dokument";
+    a.href     = url;
+    a.download = `NDA-${bName}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert("Kunde inte ladda ned PDF: " + e.message);
+  }
+  btn.disabled = false;
+  btn.innerHTML = "&#11015; Ladda ned PDF";
+}
+
+async function copyText() {
+  if (!currentNdaText) return;
+  try {
+    await navigator.clipboard.writeText(currentNdaText);
+    const fb = document.getElementById("copy-feedback");
+    fb.style.display = "inline";
+    setTimeout(() => { fb.style.display = "none"; }, 2000);
+  } catch (e) {
+    alert("Kunde inte kopiera: " + e.message);
+  }
+}
+
+async function updateStatus() {
+  if (!currentNdaId) return;
+  const status = document.getElementById("status-select").value;
+  await fetch("/api/nda/" + currentNdaId + "/status", {
+    method:  "PUT",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify({ status }),
+  });
+}
+</script>
+</body>
+</html>

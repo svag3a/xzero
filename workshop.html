@@ -1,0 +1,1487 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>xZero Workshop</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f4f6f9;
+      color: #1a1a1a;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── HEADER ── */
+    #ws-header {
+      background: #1a3a5c;
+      color: #fff;
+      height: 56px;
+      padding: 0 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25);
+      z-index: 100;
+    }
+    #ws-header-left { display: flex; align-items: center; gap: 0.75rem; }
+    #ws-brand { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; color: #7da8c8; }
+    #ws-company { font-size: 1rem; font-weight: 600; }
+    #ws-status-badge {
+      font-size: 0.68rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+      padding: 0.18rem 0.55rem; border-radius: 999px;
+      background: rgba(255,255,255,0.15); color: #c0d8ec;
+    }
+    #ws-header-right { display: flex; align-items: center; gap: 0.6rem; }
+    #ws-save-status { font-size: 0.75rem; color: #7da8c8; min-width: 70px; text-align: right; }
+
+    /* ── BUTTONS ── */
+    .btn { border: none; border-radius: 6px; padding: 0.38rem 0.85rem; font-size: 0.82rem; font-weight: 500; cursor: pointer; transition: background 0.15s, opacity 0.15s; line-height: 1.2; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-ghost { background: transparent; color: #c0d8ec; border: 1px solid rgba(255,255,255,0.25); }
+    .btn-ghost:hover:not(:disabled) { background: rgba(255,255,255,0.1); }
+    .btn-white { background: #fff; color: #1a3a5c; }
+    .btn-white:hover:not(:disabled) { background: #e8eef4; }
+    .btn-primary { background: #d4820a; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #b87008; }
+    .btn-outline { background: transparent; color: #1a3a5c; border: 1px solid #c0ceda; }
+    .btn-outline:hover:not(:disabled) { background: #e8eef4; }
+    .btn-sm { padding: 0.22rem 0.55rem; font-size: 0.75rem; }
+    .btn-icon { background: none; border: none; cursor: pointer; font-size: 0.85rem; color: #999; padding: 0.15rem 0.3rem; border-radius: 4px; line-height: 1; }
+    .btn-icon:hover { background: #f0f0f0; color: #444; }
+
+    /* ── LAYOUT ── */
+    #ws-body { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── SIDEBAR ── */
+    #ws-sidebar {
+      width: 176px;
+      flex-shrink: 0;
+      background: #fff;
+      border-right: 1px solid #dde3ea;
+      padding: 0.85rem 0.5rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      overflow-y: auto;
+    }
+    .nav-btn {
+      display: block;
+      width: 100%;
+      padding: 0.52rem 0.8rem;
+      text-align: left;
+      background: none;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.855rem;
+      color: #555;
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s;
+    }
+    .nav-btn:hover { background: #f0f4f8; color: #1a3a5c; }
+    .nav-btn.active { background: #1a3a5c; color: #fff; font-weight: 600; }
+    .nav-divider { height: 1px; background: #eee; margin: 0.45rem 0.2rem; }
+    .nav-label { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #bbb; padding: 0.35rem 0.8rem 0.05rem; }
+
+    /* ── CONTENT ── */
+    #ws-content { flex: 1; overflow-y: auto; padding: 1.75rem 2rem 3rem; }
+    .screen { display: none; }
+    .screen.active { display: block; }
+
+    /* ── TYPOGRAPHY ── */
+    .screen-title { font-size: 1.28rem; font-weight: 700; color: #1a3a5c; margin-bottom: 0.2rem; }
+    .screen-subtitle { font-size: 0.875rem; color: #6b6b6b; margin-bottom: 1.4rem; }
+
+    /* ── CARDS ── */
+    .card { background: #fff; border: 1px solid #dde3ea; border-radius: 10px; padding: 1.2rem 1.4rem; margin-bottom: 1rem; }
+    .card-title { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: #888; margin-bottom: 0.7rem; }
+
+    /* ── AGENDA ── */
+    .agenda-list { list-style: none; counter-reset: agenda; }
+    .agenda-list li {
+      counter-increment: agenda; display: flex; align-items: center; gap: 0.7rem;
+      padding: 0.55rem 0; border-bottom: 1px solid #f2f2f2; font-size: 0.875rem; color: #444;
+    }
+    .agenda-list li:last-child { border-bottom: none; }
+    .agenda-list li::before {
+      content: counter(agenda); display: flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; border-radius: 50%; background: #1a3a5c; color: #fff;
+      font-size: 0.72rem; font-weight: 700; flex-shrink: 0;
+    }
+
+    /* ── OVERVIEW HYP LIST ── */
+    .overview-hyp-list { display: flex; flex-direction: column; gap: 0.7rem; }
+    .overview-hyp {
+      border: 1px solid #dde3ea; border-radius: 8px; padding: 0.8rem 1rem;
+      background: #fff; display: flex; align-items: flex-start; gap: 0.7rem;
+      cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .overview-hyp:hover { border-color: #1a3a5c; box-shadow: 0 2px 8px rgba(26,58,92,.08); }
+    .overview-hyp-rank {
+      width: 32px; height: 32px; border-radius: 50%; background: #1a3a5c;
+      color: #fff; font-size: 0.85rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .overview-hyp-body { flex: 1; min-width: 0; }
+    .overview-hyp-title { font-size: 0.88rem; font-weight: 600; color: #1a1a1a; margin-bottom: 0.18rem; }
+    .overview-hyp-meta { font-size: 0.75rem; color: #888; }
+
+    /* ── TWO-COLUMN HYP LAYOUT ── */
+    .hyp-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    @media (max-width: 900px) { .hyp-cols { grid-template-columns: 1fr; } }
+    .hyp-col-header {
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+      margin-bottom: 0.85rem; padding-bottom: 0.5rem; border-bottom: 2px solid;
+    }
+    .hyp-left .hyp-col-header { color: #1a3a5c; border-color: #c0d0e0; }
+    .hyp-right .hyp-col-header { color: #2d6a4f; border-color: #b4d4bc; }
+
+    .scan-field { margin-bottom: 0.95rem; }
+    .scan-field-label { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #aaa; margin-bottom: 0.28rem; }
+    .scan-field-value { font-size: 0.86rem; color: #333; line-height: 1.55; }
+    .scan-field-value ul { margin-left: 1.2rem; }
+    .scan-field-value li { margin-bottom: 0.2rem; }
+
+    /* ── FORM ── */
+    .form-group { margin-bottom: 0.9rem; }
+    .form-label { display: block; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #888; margin-bottom: 0.3rem; }
+    .form-control {
+      width: 100%; padding: 0.5rem 0.7rem;
+      border: 1px solid #cdd3da; border-radius: 6px;
+      font-size: 0.86rem; color: #1a1a1a; background: #fff;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      font-family: inherit;
+    }
+    .form-control:focus { outline: none; border-color: #1a3a5c; box-shadow: 0 0 0 3px rgba(26,58,92,.09); }
+    textarea.form-control { resize: vertical; min-height: 78px; }
+    select.form-control { cursor: pointer; }
+
+    /* STATUS SELECT COLORS */
+    select.st-not_validated { background: #f5f5f5; color: #616161; border-color: #ccc; }
+    select.st-validated { background: #e8f5e9; color: #256b2d; border-color: #9fc8a3; }
+    select.st-partially_validated { background: #fffde7; color: #b85000; border-color: #f0d060; }
+    select.st-rejected { background: #ffebee; color: #b71c1c; border-color: #f4b8b8; }
+
+    /* STATUS BADGES */
+    .status-badge { display: inline-block; padding: 0.18rem 0.52rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    .badge-not_validated { background: #efefef; color: #888; }
+    .badge-validated { background: #e8f5e9; color: #256b2d; }
+    .badge-partially_validated { background: #fffde7; color: #b85000; }
+    .badge-rejected { background: #ffebee; color: #b71c1c; }
+
+    /* ── FACILITATION PROMPTS ── */
+    .facilitation {
+      background: #fdf8e8; border: 1px solid #e8d898; border-radius: 8px;
+      padding: 0.8rem 1rem; margin-bottom: 1.15rem;
+    }
+    .facilitation-title { font-size: 0.67rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: #a07010; margin-bottom: 0.4rem; }
+    .facilitation ul { list-style: none; }
+    .facilitation li { font-size: 0.78rem; color: #7a5c18; padding: 0.17rem 0; }
+    .facilitation li::before { content: "→ "; font-weight: 700; }
+
+    /* ── QUANT TABLE ── */
+    .quant-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    .quant-table th { background: #f0f4f8; color: #666; font-weight: 600; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.38rem 0.45rem; border-bottom: 2px solid #dde3ea; text-align: left; white-space: nowrap; }
+    .quant-table td { padding: 0.3rem 0.45rem; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+    .quant-table input, .quant-table select { width: 100%; border: 1px solid #dde3ea; border-radius: 4px; padding: 0.22rem 0.38rem; font-size: 0.78rem; font-family: inherit; }
+
+    /* ── TAG INPUT ── */
+    .tag-wrap {
+      border: 1px solid #cdd3da; border-radius: 6px; padding: 0.3rem 0.4rem;
+      display: flex; flex-wrap: wrap; gap: 0.28rem; cursor: text; min-height: 36px; background: #fff;
+    }
+    .tag-wrap:focus-within { border-color: #1a3a5c; box-shadow: 0 0 0 3px rgba(26,58,92,.09); }
+    .tag { background: #e8eef4; color: #1a3a5c; font-size: 0.72rem; padding: 0.12rem 0.45rem; border-radius: 999px; display: flex; align-items: center; gap: 0.22rem; }
+    .tag-rm { cursor: pointer; color: #888; font-size: 0.68rem; line-height: 1; }
+    .tag-rm:hover { color: #c00; }
+    .tag-input { border: none; outline: none; font-size: 0.8rem; min-width: 90px; flex: 1; font-family: inherit; background: transparent; }
+
+    /* ── PRIORITIZATION ── */
+    .prio-table { width: 100%; border-collapse: collapse; font-size: 0.81rem; }
+    .prio-table th { background: #1a3a5c; color: #fff; padding: 0.48rem 0.7rem; font-size: 0.68rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; text-align: left; white-space: nowrap; }
+    .prio-table td { padding: 0.58rem 0.7rem; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+    .prio-table tbody tr:hover td { background: #f8fafc; }
+    .prio-selected td { background: #f0f7f3 !important; }
+    .prio-table select, .prio-table input[type="number"] { border: 1px solid #cdd3da; border-radius: 4px; padding: 0.2rem 0.38rem; font-size: 0.78rem; font-family: inherit; }
+
+    .prio-comparison { display: flex; gap: 1rem; margin-top: 1rem; }
+    .prio-box { flex: 1; background: #fff; border: 1px solid #dde3ea; border-radius: 8px; padding: 0.8rem 1rem; }
+    .prio-box-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: #888; margin-bottom: 0.28rem; }
+    .prio-box-value { font-size: 1.1rem; font-weight: 700; color: #1a3a5c; }
+    .prio-box.changed .prio-box-value { color: #2d6a4f; }
+
+    /* ── USE CASE SECTION ── */
+    .uc-section { margin-top: 1.4rem; border: 2px solid #1a3a5c; border-radius: 10px; padding: 1.2rem 1.4rem; background: #f7fbff; }
+    .uc-header { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #1a3a5c; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.45rem; }
+    .uc-header::before { content: "◆"; font-size: 0.62rem; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+    /* ── DATA REQUEST ── */
+    .data-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    .data-table th { background: #f0f4f8; color: #666; font-weight: 600; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.42rem 0.58rem; border-bottom: 2px solid #d0d8e4; text-align: left; white-space: nowrap; }
+    .data-table td { padding: 0.48rem 0.58rem; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+    .data-table select, .data-table input[type="text"] { border: 1px solid #cdd3da; border-radius: 4px; padding: 0.2rem 0.38rem; font-size: 0.78rem; width: 100%; font-family: inherit; }
+    .data-table input[type="checkbox"] { cursor: pointer; width: auto; }
+    .req-pill { display: inline-block; padding: 0.1rem 0.38rem; border-radius: 999px; font-size: 0.67rem; font-weight: 700; text-transform: uppercase; }
+    .req-y { background: #e8f5e9; color: #256b2d; }
+    .req-n { background: #f5f5f5; color: #888; }
+    .lh-high { color: #256b2d; font-weight: 600; }
+    .lh-medium { color: #b85000; font-weight: 600; }
+    .lh-low { color: #b71c1c; font-weight: 600; }
+
+    /* ── SUMMARY ── */
+    .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.15rem; margin-bottom: 1.15rem; }
+    .summary-card { background: #fff; border: 1px solid #dde3ea; border-radius: 10px; padding: 1.1rem 1.3rem; }
+    .summary-card h3 { font-size: 0.85rem; font-weight: 700; color: #1a3a5c; margin-bottom: 0.45rem; padding-bottom: 0.3rem; border-bottom: 1px solid #eee; }
+    .summary-card ul { list-style: none; }
+    .summary-card li { font-size: 0.86rem; line-height: 1.55; color: #333; padding: 0.2rem 0; border-bottom: 1px solid #f5f5f5; }
+    .summary-card li:last-child { border-bottom: none; }
+    .summary-card li::before { content: "· "; color: #1a3a5c; font-weight: 700; }
+
+    /* ── MODAL ── */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1000; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal-box { background: #fff; border-radius: 12px; width: 560px; max-height: 82vh; overflow-y: auto; padding: 1.5rem; box-shadow: 0 20px 60px rgba(0,0,0,.28); }
+    .modal-title { font-size: 1rem; font-weight: 700; color: #1a3a5c; margin-bottom: 1.15rem; }
+    .modal-footer { margin-top: 1.15rem; display: flex; gap: 0.5rem; justify-content: flex-end; }
+
+    /* ── MISC ── */
+    .text-muted { color: #888; font-size: 0.8rem; }
+    .mt-1 { margin-top: 0.5rem; }
+    .mt-2 { margin-top: 1rem; }
+    hr.section-divider { border: none; border-top: 1px solid #eee; margin: 1.3rem 0; }
+    .empty-state { text-align: center; padding: 3rem 1.5rem; color: #bbb; }
+    .empty-state-icon { font-size: 2.2rem; margin-bottom: 0.6rem; }
+    .empty-state p { font-size: 0.9rem; }
+    .completed-banner { background: #e8f5e9; border: 1px solid #9fc8a3; border-radius: 8px; padding: 0.9rem 1.2rem; margin-top: 1rem; text-align: center; color: #256b2d; font-weight: 600; font-size: 0.95rem; }
+
+    @media print {
+      #ws-header, #ws-sidebar { display: none !important; }
+      #ws-body { display: block; }
+      #ws-content { padding: 0; overflow: visible; }
+      body { overflow: visible; height: auto; }
+      .screen { display: block !important; page-break-after: always; }
+    }
+  </style>
+</head>
+<body>
+
+<header id="ws-header">
+  <div id="ws-header-left">
+    <span id="ws-brand">xZero</span>
+    <div style="width:1px;height:18px;background:rgba(255,255,255,.2)"></div>
+    <span id="ws-company">Laddar...</span>
+    <span id="ws-status-badge">–</span>
+  </div>
+  <div id="ws-header-right">
+    <span id="ws-save-status">–</span>
+    <button class="btn btn-ghost" onclick="exportSummary()">Exportera</button>
+    <button class="btn btn-ghost" id="btn-complete" onclick="completeWorkshop()">Avsluta workshop</button>
+    <button class="btn btn-white" onclick="saveNow()">Spara</button>
+  </div>
+</header>
+
+<div id="ws-body">
+  <nav id="ws-sidebar">
+    <button class="nav-btn active" data-screen="overview" onclick="showScreen('overview')">Översikt</button>
+    <div class="nav-divider"></div>
+    <div class="nav-label">Hypoteser</div>
+    <div id="nav-hypotheses"></div>
+    <div class="nav-divider"></div>
+    <button class="nav-btn" data-screen="prioritization" onclick="showScreen('prioritization')">Prioritering</button>
+    <button class="nav-btn" data-screen="data" onclick="showScreen('data')">Databehov</button>
+    <button class="nav-btn" data-screen="summary" onclick="showScreen('summary')">Summering</button>
+  </nav>
+
+  <main id="ws-content">
+    <div id="screen-overview"     class="screen active"></div>
+    <div id="screen-hypotheses"   class="screen"></div>
+    <div id="screen-prioritization" class="screen"></div>
+    <div id="screen-data"         class="screen"></div>
+    <div id="screen-summary"      class="screen"></div>
+  </main>
+</div>
+
+<!-- ── Add hypothesis modal ── -->
+<div class="modal-overlay" id="modal-add-hyp">
+  <div class="modal-box">
+    <div class="modal-title">Lägg till ny hypotes</div>
+    <div class="form-group">
+      <label class="form-label">Titel *</label>
+      <input type="text" class="form-control" id="new-hyp-title" placeholder="Kortfattad hypotestitel">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Mekanism</label>
+      <textarea class="form-control" id="new-hyp-mechanism" rows="2" placeholder="Hur uppstår läckaget?"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Beslut</label>
+      <input type="text" class="form-control" id="new-hyp-decision" placeholder="Vilket beslut brister?">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Symptom (ett per rad)</label>
+      <textarea class="form-control" id="new-hyp-symptoms" rows="3" placeholder="Symptom 1&#10;Symptom 2"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Kandidat-use case</label>
+      <input type="text" class="form-control" id="new-hyp-usecase" placeholder="Möjligt use case">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Anteckningar</label>
+      <textarea class="form-control" id="new-hyp-notes" rows="2" placeholder="Övriga anteckningar"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeAddHyp()">Avbryt</button>
+      <button class="btn btn-primary" onclick="confirmAddHyp()">Lägg till hypotes</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   WORKSHOP — MAIN SCRIPT
+   ═══════════════════════════════════════════════════════════════ */
+
+const WS_ID = window.location.pathname.split('/').filter(Boolean).pop();
+let session  = null;
+let saveTimer = null;
+
+// ── LOOKUP TABLES ─────────────────────────────────────────────
+const STATUS_LABELS = {
+  not_validated:      'Ej validerad',
+  validated:          'Validerad',
+  partially_validated:'Delvis validerad',
+  rejected:           'Avvisad',
+};
+const ROOT_CLUSTER_SV = {
+  demand_volatility:        'Efterfrågevariabilitet',
+  price_volatility:         'Prisvariabilitet',
+  capacity_variability:     'Kapacitetsvariabilitet',
+  flow_fragmentation:       'Flödesfragmentering',
+  knowledge_dependency:     'Kunskapsberoende',
+  margin_pressure:          'Marginaltryck',
+  risk_uncertainty:         'Riskosäkerhet',
+  portfolio_complexity:     'Portföljkomplexitet',
+  project_uncertainty:      'Projektosäkerhet',
+  working_capital_imbalance:'Rörelsekapitalobalans',
+  unknown:                  'Okänd',
+};
+const ARCHETYPE_SV = {
+  forecasting:  'Prognos',
+  optimization: 'Optimering',
+  simulation:   'Simulering',
+  classification:'Klassificering',
+  risk_scoring: 'Riskbedömning',
+  rules_engine: 'Regelmotor',
+  hybrid:       'Hybrid',
+};
+const DEC_FREQ_SV = { daily:'Daglig', weekly:'Veckovis', monthly:'Månadsvis', episodic:'Episodisk', unknown:'Okänd' };
+const DEC_TYPE_SV = {
+  volume_decision:    'Volymsbeslut',
+  timing_decision:    'Tidsbeslut',
+  allocation_decision:'Fördelningsbeslut',
+  pricing_decision:   'Prissättningsbeslut',
+  resource_decision:  'Resursbeslut',
+  risk_decision:      'Riskbeslut',
+  process_decision:   'Processbeslut',
+  project_decision:   'Projektbeslut',
+  portfolio_decision: 'Portföljbeslut',
+};
+const EVD_SRC_SV = {
+  customer_statement:'Kunduppgift',
+  system_data:       'Systemdata',
+  estimate:          'Uppskattning',
+  financial_report:  'Finansiell rapport',
+  unknown:           'Okänd',
+};
+const STATUS_BADGE_LABELS = { draft:'Utkast', active:'Aktiv', completed:'Avslutad', archived:'Arkiverad' };
+
+// ── INIT ──────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', loadWorkshop);
+
+async function loadWorkshop() {
+  try {
+    const res = await fetch('/api/workshops/' + WS_ID);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    session = await res.json();
+    renderAll();
+  } catch (e) {
+    document.getElementById('ws-content').innerHTML =
+      `<div class="empty-state"><div class="empty-state-icon">⚠️</div><p>Kunde inte ladda workshopen.<br><small>${e.message}</small></p></div>`;
+  }
+}
+
+// ── RENDER ALL ────────────────────────────────────────────────
+function renderAll() {
+  if (!session) return;
+
+  // Header
+  document.getElementById('ws-company').textContent = session.company_name || '–';
+  document.getElementById('ws-status-badge').textContent = STATUS_BADGE_LABELS[session.status] || session.status;
+  document.title = 'Workshop – ' + (session.company_name || 'xZero');
+
+  // Sidebar hypothesis nav
+  const navHyp = document.getElementById('nav-hypotheses');
+  navHyp.innerHTML = '';
+  (session.hypotheses || []).forEach((h, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'nav-btn';
+    btn.dataset.hypIdx = i;
+    const label = h.hypothesis_id || ('H' + (i + 1));
+    btn.textContent = label + (h.source === 'workshop' ? ' ✎' : '');
+    btn.onclick = () => showHypothesisScreen(i);
+    navHyp.appendChild(btn);
+  });
+
+  // "Lägg till ny hypotes" nav button
+  const addBtn = document.createElement('button');
+  addBtn.className = 'nav-btn';
+  addBtn.style.cssText = 'font-size:0.76rem;color:#999;border:1px dashed #ccc;margin-top:0.3rem;';
+  addBtn.textContent = '+ Ny hypotes';
+  addBtn.onclick = openAddHyp;
+  navHyp.appendChild(addBtn);
+
+  renderOverview();
+  renderHypothesisScreenAll();
+  renderPrioritization();
+  renderDataRequest();
+  renderSummary();
+}
+
+// ── SCREEN NAVIGATION ─────────────────────────────────────────
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const el = document.getElementById('screen-' + name);
+  if (el) el.classList.add('active');
+  const btn = document.querySelector('[data-screen="' + name + '"]');
+  if (btn) btn.classList.add('active');
+}
+
+function showHypothesisScreen(idx) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+
+  const screenEl = document.getElementById('screen-hypotheses');
+  if (screenEl) screenEl.classList.add('active');
+
+  document.querySelectorAll('.hyp-panel').forEach(p => p.style.display = 'none');
+  const panel = document.getElementById('hyp-panel-' + idx);
+  if (panel) panel.style.display = 'block';
+
+  const navBtn = document.querySelector('[data-hyp-idx="' + idx + '"]');
+  if (navBtn) navBtn.classList.add('active');
+}
+
+// ── OVERVIEW ──────────────────────────────────────────────────
+function renderOverview() {
+  const el = document.getElementById('screen-overview');
+  const hyps = session.hypotheses || [];
+
+  el.innerHTML = `
+    <div class="screen-title">Välkommen till workshopen</div>
+    <div class="screen-subtitle">${esc(session.company_name || '')}</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.2rem">
+      <div class="card">
+        <div class="card-title">Agenda</div>
+        <ol class="agenda-list">
+          ${(session.agenda || []).map(a => `<li>${esc(a)}</li>`).join('')}
+        </ol>
+      </div>
+      <div class="card">
+        <div class="card-title">Framing</div>
+        <p style="font-size:0.875rem;line-height:1.7;color:#444;font-style:italic;margin-bottom:0.85rem">
+          "Detta är hypoteser baserade på publik data. I workshopen testar vi om de stämmer."
+        </p>
+        ${session.scan_total_potential_msek != null ? `
+        <div style="background:#f0f7f4;border:1px solid #b4d4bc;border-radius:7px;padding:0.7rem 1rem">
+          <div style="font-size:0.67rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#555;margin-bottom:0.15rem">Indikerad potential (scan)</div>
+          <div style="font-size:1.2rem;font-weight:700;color:#1a3a5c">${fmtMsek(session.scan_total_potential_msek)}</div>
+        </div>` : ''}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Hypoteser att validera</div>
+      <div class="overview-hyp-list">
+        ${hyps.map((h, i) => `
+          <div class="overview-hyp" onclick="showHypothesisScreen(${i})">
+            <div class="overview-hyp-rank">${esc(h.hypothesis_id || 'H' + (i + 1))}</div>
+            <div class="overview-hyp-body">
+              <div class="overview-hyp-title">${esc(h.title || '')}</div>
+              <div class="overview-hyp-meta">
+                ${h.root_cause_cluster ? (ROOT_CLUSTER_SV[h.root_cause_cluster] || h.root_cause_cluster) : ''}
+                ${h.model_archetype?.type ? ' · ' + (ARCHETYPE_SV[h.model_archetype.type] || h.model_archetype.type) : ''}
+                ${h.recommended_starting_hypothesis ? ' · <span style="color:#256b2d;font-weight:600">Rekommenderad startpunkt</span>' : ''}
+                ${h.source === 'workshop' ? ' · <em>Tillagd under workshop</em>' : ''}
+              </div>
+            </div>
+            <span class="status-badge badge-${h.validation_status || 'not_validated'}">
+              ${STATUS_LABELS[h.validation_status || 'not_validated']}
+            </span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+// ── HYPOTHESIS SCREENS ────────────────────────────────────────
+function renderHypothesisScreenAll() {
+  const container = document.getElementById('screen-hypotheses');
+  container.innerHTML = '';
+  (session.hypotheses || []).forEach((h, i) => {
+    const panel = document.createElement('div');
+    panel.className = 'hyp-panel';
+    panel.id = 'hyp-panel-' + i;
+    panel.style.display = 'none';
+    panel.innerHTML = buildHypPanelHTML(h, i);
+    container.appendChild(panel);
+  });
+}
+
+function buildHypPanelHTML(h, i) {
+  const hid  = h.hypothesis_id || ('H' + (i + 1));
+  const mech = h.mechanism || {};
+  const dec  = h.decision  || {};
+  const uc   = h.candidate_use_case || {};
+  const dr   = h.data_requirements  || [];
+  const qt   = h.quantification_targets || [];
+  const vq   = h.validation_questions   || [];
+  const syms = h.symptoms || [];
+  const qe   = h.quantification_estimates || [];
+  const nf   = h.new_findings     || [];
+  const ev   = h.evidence_collected || [];
+  const vs   = h.validation_status || 'not_validated';
+  const prio = h.customer_priority_rank;
+
+  const navPrev = i > 0
+    ? `<button class="btn btn-outline btn-sm" onclick="showHypothesisScreen(${i-1})">← Föregående</button>` : '';
+  const navNext = i < (session.hypotheses.length - 1)
+    ? `<button class="btn btn-white btn-sm" onclick="showHypothesisScreen(${i+1})">Nästa →</button>` : '';
+
+  return `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:1.15rem;gap:1rem">
+      <div>
+        <div class="screen-title">${esc(hid)} – ${esc(h.title || '')}</div>
+        ${h.source === 'workshop' ? '<div class="text-muted" style="margin-top:0.15rem">Tillagd under workshop</div>' : ''}
+      </div>
+      <div style="display:flex;gap:0.4rem;flex-shrink:0">${navPrev}${navNext}</div>
+    </div>
+
+    <div class="facilitation">
+      <div class="facilitation-title">Faciliteringsstöd</div>
+      <ul>
+        <li>Stämmer detta?</li>
+        <li>Vilken del stämmer inte?</li>
+        <li>Vilket beslut är det egentligen som brister?</li>
+        <li>Hur märks detta i verksamheten?</li>
+        <li>Kan vi sätta ett ungefärligt årsbelopp?</li>
+      </ul>
+    </div>
+
+    <div class="hyp-cols">
+      <!-- LEFT: Scan data -->
+      <div class="hyp-left">
+        <div class="hyp-col-header">Vad vi trodde före workshopen</div>
+
+        <div class="scan-field">
+          <div class="scan-field-label">Hypotes</div>
+          <div class="scan-field-value">${esc(h.title || '–')}</div>
+        </div>
+
+        ${mech.description ? `
+        <div class="scan-field">
+          <div class="scan-field-label">Mekanism</div>
+          <div class="scan-field-value">${esc(mech.description)}</div>
+        </div>` : ''}
+
+        ${dec.decision_name ? `
+        <div class="scan-field">
+          <div class="scan-field-label">Beslut</div>
+          <div class="scan-field-value">
+            <strong>${esc(dec.decision_name)}</strong>
+            ${dec.decision_owner_role ? `<div class="text-muted">Ägare: ${esc(dec.decision_owner_role)}</div>` : ''}
+            ${dec.decision_frequency  ? `<div class="text-muted">Frekvens: ${DEC_FREQ_SV[dec.decision_frequency] || dec.decision_frequency}</div>` : ''}
+            ${dec.decision_type       ? `<div class="text-muted">Typ: ${DEC_TYPE_SV[dec.decision_type] || dec.decision_type}</div>` : ''}
+          </div>
+        </div>` : ''}
+
+        ${syms.length ? `
+        <div class="scan-field">
+          <div class="scan-field-label">Symptom</div>
+          <div class="scan-field-value"><ul>${syms.map(s => `<li>${esc(s)}</li>`).join('')}</ul></div>
+        </div>` : ''}
+
+        ${vq.length ? `
+        <div class="scan-field">
+          <div class="scan-field-label">Validering / falsifiering</div>
+          <div class="scan-field-value"><ul>${vq.map(q => `<li>${esc(q)}</li>`).join('')}</ul></div>
+        </div>` : ''}
+
+        ${qt.length ? `
+        <div class="scan-field">
+          <div class="scan-field-label">Kvantifiering (mål)</div>
+          <div class="scan-field-value">
+            <ul>${qt.map(t => `<li><strong>${esc(t.metric||'')}</strong> [${esc(t.unit||'')}]: ${esc(t.question||'')}</li>`).join('')}</ul>
+          </div>
+        </div>` : ''}
+
+        ${uc.name ? `
+        <div class="scan-field">
+          <div class="scan-field-label">Kandidat-use case</div>
+          <div class="scan-field-value">
+            <strong>${esc(uc.name)}</strong>
+            ${uc.description ? `<div>${esc(uc.description)}</div>` : ''}
+            ${uc.xzero_module ? `<div class="text-muted">Modul: ${esc(uc.xzero_module)}</div>` : ''}
+          </div>
+        </div>` : ''}
+
+        ${dr.length ? `
+        <div class="scan-field">
+          <div class="scan-field-label">Databehov (scan)</div>
+          <div class="scan-field-value">
+            ${dr.map(d => `
+              <div style="padding:0.28rem 0;border-bottom:1px solid #f2f2f2">
+                <span class="req-pill ${d.required ? 'req-y' : 'req-n'}">${d.required ? 'Krav' : 'Önskvärt'}</span>
+                <strong style="margin-left:0.35rem">${esc(d.data_name||'')}</strong>
+                ${d.data_likelihood ? `<span class="lh-${d.data_likelihood}" style="margin-left:0.45rem;font-size:0.75rem">${{high:'Hög',medium:'Medel',low:'Låg'}[d.data_likelihood]||''}</span>` : ''}
+                ${d.reason ? `<div class="text-muted">${esc(d.reason)}</div>` : ''}
+              </div>
+            `).join('')}
+          </div>
+        </div>` : ''}
+
+        ${h.model_archetype ? `
+        <div class="scan-field">
+          <div class="scan-field-label">Modellarkitektur</div>
+          <div class="scan-field-value">
+            <span style="background:#e8eef4;color:#1a3a5c;padding:0.18rem 0.48rem;border-radius:4px;font-size:0.75rem;font-weight:600">${ARCHETYPE_SV[h.model_archetype.type] || h.model_archetype.type || '–'}</span>
+            ${h.model_archetype.description ? `<div style="margin-top:0.3rem;font-size:0.82rem">${esc(h.model_archetype.description)}</div>` : ''}
+          </div>
+        </div>` : ''}
+      </div>
+
+      <!-- RIGHT: Live editing -->
+      <div class="hyp-right">
+        <div class="hyp-col-header">Vad vi lär oss nu</div>
+
+        <div class="form-group">
+          <label class="form-label">Validering</label>
+          <select class="form-control st-${vs}" id="status-${i}" onchange="onStatusChange(${i},this)">
+            <option value="not_validated"      ${vs==='not_validated'?'selected':''}>Ej validerad</option>
+            <option value="validated"          ${vs==='validated'?'selected':''}>Validerad</option>
+            <option value="partially_validated"${vs==='partially_validated'?'selected':''}>Delvis validerad</option>
+            <option value="rejected"           ${vs==='rejected'?'selected':''}>Avvisad</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Faktiskt nuläge</label>
+          <textarea class="form-control" id="notes-${i}" rows="4"
+            placeholder="Anteckna vad kunden berättar — vad stämmer, vad stämmer inte, vad saknas..."
+            oninput="onFieldChange(${i},'actual_state_notes',this.value)">${esc(h.actual_state_notes||'')}</textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Kundprioritet (1 = högst)</label>
+          <select class="form-control" id="priority-${i}" onchange="onFieldChange(${i},'customer_priority_rank',this.value?parseInt(this.value):null)">
+            <option value="">–</option>
+            <option value="1" ${prio===1?'selected':''}>1 – Högst prioritet</option>
+            <option value="2" ${prio===2?'selected':''}>2 – Medel</option>
+            <option value="3" ${prio===3?'selected':''}>3 – Lägst prioritet</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Nya insikter</label>
+          <div class="tag-wrap" id="fw-${i}" onclick="focusTagInput('fi-${i}')">
+            ${nf.map((f,fi) => `<span class="tag">${esc(f)}<span class="tag-rm" onclick="rmTag('nf',${i},${fi})">×</span></span>`).join('')}
+            <input class="tag-input" id="fi-${i}" placeholder="${nf.length?'':'Skriv och tryck Enter...'}"
+                   onkeydown="tagKeydown(event,'nf',${i})">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Bevis insamlat</label>
+          <div class="tag-wrap" id="ew-${i}" onclick="focusTagInput('ei-${i}')">
+            ${ev.map((f,fi) => `<span class="tag">${esc(f)}<span class="tag-rm" onclick="rmTag('ev',${i},${fi})">×</span></span>`).join('')}
+            <input class="tag-input" id="ei-${i}" placeholder="${ev.length?'':'Skriv och tryck Enter...'}"
+                   onkeydown="tagKeydown(event,'ev',${i})">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem">
+            <label class="form-label" style="margin:0">Kvantifiering (estimat)</label>
+            <button class="btn btn-outline btn-sm" onclick="addQuantRow(${i})">+ Rad</button>
+          </div>
+          <div id="qt-wrap-${i}">${buildQuantTable(qe, i)}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function buildQuantTable(est, hi) {
+  if (!est.length) return `<div class="text-muted" style="padding:0.4rem 0">Inga estimat. Klicka "+ Rad" för att lägga till.</div>`;
+  return `<div style="overflow-x:auto"><table class="quant-table">
+    <thead><tr>
+      <th>Mätvariabel</th><th>Låg</th><th>Bas</th><th>Hög</th><th>Enhet</th><th>Konfidens</th><th>Källa</th><th></th>
+    </tr></thead>
+    <tbody>${est.map((e,ei) => `<tr>
+      <td><input value="${esc(e.metric||'')}" oninput="updQ(${hi},${ei},'metric',this.value)" placeholder="Mätvariabel" style="min-width:90px"></td>
+      <td><input type="number" value="${e.low_value??''}"  oninput="updQ(${hi},${ei},'low_value',this.value)"  style="width:58px"></td>
+      <td><input type="number" value="${e.base_value??''}" oninput="updQ(${hi},${ei},'base_value',this.value)" style="width:58px"></td>
+      <td><input type="number" value="${e.high_value??''}" oninput="updQ(${hi},${ei},'high_value',this.value)" style="width:58px"></td>
+      <td><input value="${esc(e.unit||'MSEK')}" oninput="updQ(${hi},${ei},'unit',this.value)" style="width:52px"></td>
+      <td><select onchange="updQ(${hi},${ei},'confidence',this.value)">
+        <option value="low"    ${e.confidence==='low'?'selected':''}>Låg</option>
+        <option value="medium" ${e.confidence==='medium'?'selected':''}>Medel</option>
+        <option value="high"   ${e.confidence==='high'?'selected':''}>Hög</option>
+      </select></td>
+      <td><select onchange="updQ(${hi},${ei},'evidence_source',this.value)">
+        ${Object.entries(EVD_SRC_SV).map(([k,v]) => `<option value="${k}" ${e.evidence_source===k?'selected':''}>${v}</option>`).join('')}
+      </select></td>
+      <td><button class="btn-icon" onclick="rmQuantRow(${hi},${ei})">×</button></td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+// ── HYPOTHESIS EVENT HANDLERS ─────────────────────────────────
+function onStatusChange(idx, el) {
+  if (!session.hypotheses[idx]) return;
+  session.hypotheses[idx].validation_status = el.value;
+  el.className = 'form-control st-' + el.value;
+  renderOverview();
+  autosave();
+}
+
+function onFieldChange(idx, field, value) {
+  if (!session.hypotheses[idx]) return;
+  session.hypotheses[idx][field] = value;
+  autosave();
+}
+
+function focusTagInput(id) { document.getElementById(id)?.focus(); }
+
+function tagKeydown(event, type, hi) {
+  if (event.key !== 'Enter' && event.key !== ',') return;
+  event.preventDefault();
+  const val = event.target.value.trim();
+  if (!val) return;
+  const h = session.hypotheses[hi];
+  if (!h) return;
+  if (type === 'nf') { if (!h.new_findings) h.new_findings = []; h.new_findings.push(val); }
+  else               { if (!h.evidence_collected) h.evidence_collected = []; h.evidence_collected.push(val); }
+  event.target.value = '';
+  rerenderTags(type, hi);
+  autosave();
+}
+
+function rmTag(type, hi, ti) {
+  const h = session.hypotheses[hi];
+  if (!h) return;
+  if (type === 'nf') h.new_findings.splice(ti, 1);
+  else               h.evidence_collected.splice(ti, 1);
+  rerenderTags(type, hi);
+  autosave();
+}
+
+function rerenderTags(type, hi) {
+  const h     = session.hypotheses[hi];
+  const wrapId = type === 'nf' ? 'fw-' + hi : 'ew-' + hi;
+  const inpId  = type === 'nf' ? 'fi-' + hi : 'ei-' + hi;
+  const items  = (type === 'nf' ? h.new_findings : h.evidence_collected) || [];
+  const wrap   = document.getElementById(wrapId);
+  const inp    = document.getElementById(inpId);
+  if (!wrap || !inp) return;
+  wrap.querySelectorAll('.tag').forEach(t => t.remove());
+  items.forEach((f, fi) => {
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.innerHTML = `${esc(f)}<span class="tag-rm" onclick="rmTag('${type}',${hi},${fi})">×</span>`;
+    wrap.insertBefore(tag, inp);
+  });
+  inp.placeholder = items.length ? '' : 'Skriv och tryck Enter...';
+}
+
+function addQuantRow(hi) {
+  const h = session.hypotheses[hi];
+  if (!h) return;
+  if (!h.quantification_estimates) h.quantification_estimates = [];
+  h.quantification_estimates.push({ metric:'', low_value:null, base_value:null, high_value:null, unit:'MSEK', formula_note:'', confidence:'medium', evidence_source:'estimate' });
+  const wrap = document.getElementById('qt-wrap-' + hi);
+  if (wrap) wrap.innerHTML = buildQuantTable(h.quantification_estimates, hi);
+  autosave();
+}
+
+function rmQuantRow(hi, ei) {
+  const h = session.hypotheses[hi];
+  if (!h?.quantification_estimates) return;
+  h.quantification_estimates.splice(ei, 1);
+  const wrap = document.getElementById('qt-wrap-' + hi);
+  if (wrap) wrap.innerHTML = buildQuantTable(h.quantification_estimates, hi);
+  autosave();
+}
+
+function updQ(hi, ei, field, value) {
+  const h = session.hypotheses[hi];
+  if (!h?.quantification_estimates?.[ei]) return;
+  const numFields = ['low_value','base_value','high_value'];
+  h.quantification_estimates[ei][field] = numFields.includes(field) ? (value !== '' ? parseFloat(value) : null) : value;
+  autosave();
+}
+
+// ── PRIORITIZATION ────────────────────────────────────────────
+function renderPrioritization() {
+  const el   = document.getElementById('screen-prioritization');
+  const hyps = session.hypotheses || [];
+  const prio = session.prioritization || {};
+  const scanRec = prio.scan_recommended_hypothesis_id;
+  const wsRec   = prio.workshop_recommended_hypothesis_id;
+
+  el.innerHTML = `
+    <div class="screen-title">Prioritering</div>
+    <div class="screen-subtitle">Jämför hypoteserna och välj startpunkt för use case</div>
+
+    <div class="card" style="overflow-x:auto;padding:0">
+      <table class="prio-table">
+        <thead><tr>
+          <th>Hypotes</th>
+          <th>Validering</th>
+          <th>Kundprioritet</th>
+          <th>Potential (bas)</th>
+          <th>Datatillgång</th>
+          <th>Use case</th>
+          <th>Startpunkt</th>
+        </tr></thead>
+        <tbody>
+          ${hyps.map((h, i) => {
+            const hid    = h.hypothesis_id || ('H' + (i + 1));
+            const pot    = getBestEst(h);
+            const da     = getDataAvail(h);
+            const uc     = h.candidate_use_case || {};
+            const isWsRec = wsRec === hid;
+            return `
+              <tr class="${isWsRec ? 'prio-selected' : ''}">
+                <td>
+                  <strong>${esc(hid)}</strong>
+                  <div class="text-muted" style="font-size:0.75rem;max-width:170px;white-space:normal;line-height:1.4">${esc(h.title||'')}</div>
+                  ${scanRec === hid ? '<div style="font-size:0.68rem;color:#888;margin-top:0.15rem">Scan-rekommendation</div>' : ''}
+                </td>
+                <td><span class="status-badge badge-${h.validation_status||'not_validated'}">${STATUS_LABELS[h.validation_status||'not_validated']}</span></td>
+                <td style="text-align:center">${h.customer_priority_rank != null ? h.customer_priority_rank : '–'}</td>
+                <td style="text-align:right">${pot != null ? fmtN(pot) + ' MSEK' : '–'}</td>
+                <td style="text-align:center"><span class="lh-${da.level}">${da.label}</span></td>
+                <td><div style="font-size:0.8rem;max-width:150px;line-height:1.4">${esc(uc.name||'–')}</div></td>
+                <td style="text-align:center">
+                  <button class="btn btn-sm ${isWsRec ? 'btn-primary' : 'btn-outline'}"
+                          onclick="selectStart('${esc(hid)}')" style="min-width:52px">
+                    ${isWsRec ? '✓ Vald' : 'Välj'}
+                  </button>
+                </td>
+              </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prio-comparison">
+      <div class="prio-box">
+        <div class="prio-box-label">Scannens rekommendation</div>
+        <div class="prio-box-value">${scanRec || '–'}</div>
+      </div>
+      <div class="prio-box ${wsRec && wsRec !== scanRec ? 'changed' : ''}">
+        <div class="prio-box-label">Efter workshop</div>
+        <div class="prio-box-value">${wsRec || '–'}</div>
+      </div>
+    </div>
+
+    <div class="form-group mt-2">
+      <label class="form-label">Prioriteringsanteckningar</label>
+      <textarea class="form-control" rows="2" placeholder="Motivering till vald startpunkt..."
+                oninput="onPrioNotes(this)">${esc(prio.priority_notes||'')}</textarea>
+    </div>
+
+    ${wsRec ? buildUcSectionHTML() : `
+      <div class="card" style="text-align:center;color:#aaa;padding:1.5rem">
+        Välj en startpunkt ovan för att redigera use case
+      </div>`}
+  `;
+}
+
+function buildUcSectionHTML() {
+  const wsRec  = session.prioritization?.workshop_recommended_hypothesis_id;
+  const recHyp = session.hypotheses?.find(h => h.hypothesis_id === wsRec) || {};
+  const scanUc = recHyp.candidate_use_case || {};
+  const uc     = session.selected_use_case || {};
+
+  const name     = uc.name     || scanUc.name     || '';
+  const decision = uc.decision_to_improve || recHyp.decision?.decision_description || '';
+  const archetype= uc.model_archetype || recHyp.model_archetype?.type || '';
+  const simGoal  = uc.simulation_goal  || recHyp.model_archetype?.description || '';
+  const metrics  = (uc.success_metrics || []).join('\n');
+
+  return `
+    <div class="uc-section">
+      <div class="uc-header">Valt use case</div>
+      <div class="two-col">
+        <div class="form-group">
+          <label class="form-label">Use case-namn</label>
+          <input type="text" class="form-control" value="${esc(name)}"
+                 oninput="updUc('name',this.value)" placeholder="Kort beskrivande namn">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Modellarkitektur</label>
+          <select class="form-control" onchange="updUc('model_archetype',this.value)">
+            <option value="">–</option>
+            ${Object.entries(ARCHETYPE_SV).map(([k,v]) => `<option value="${k}" ${archetype===k?'selected':''}>${v}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Beslut att förbättra</label>
+        <textarea class="form-control" rows="2" oninput="updUc('decision_to_improve',this.value)"
+                  placeholder="Vilket specifikt beslut ska förbättras?">${esc(decision)}</textarea>
+      </div>
+      <div class="two-col">
+        <div class="form-group">
+          <label class="form-label">Förväntad effekt</label>
+          <textarea class="form-control" rows="2" oninput="updUc('expected_effect',this.value)"
+                    placeholder="Vilken effekt förväntar vi oss?">${esc(uc.expected_effect||'')}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Simuleringsmål</label>
+          <input type="text" class="form-control" value="${esc(simGoal)}"
+                 oninput="updUc('simulation_goal',this.value)" placeholder="Vad ska simuleras?">
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="form-group">
+          <label class="form-label">Framgångsmått (ett per rad)</label>
+          <textarea class="form-control" rows="2" oninput="updUc('success_metrics_text',this.value)"
+                    placeholder="Mått 1&#10;Mått 2">${esc(metrics)}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Scope-anteckningar</label>
+          <textarea class="form-control" rows="2" oninput="updUc('scope_notes',this.value)"
+                    placeholder="Avgränsningar...">${esc(uc.scope_notes||'')}</textarea>
+        </div>
+      </div>
+    </div>`;
+}
+
+function selectStart(hid) {
+  if (!session.prioritization) session.prioritization = {};
+  const already = session.prioritization.workshop_recommended_hypothesis_id === hid;
+  if (already) {
+    session.prioritization.workshop_recommended_hypothesis_id = null;
+    session.selected_use_case = null;
+    session.hypotheses.forEach(h => h.selected_for_simulation = false);
+  } else {
+    session.prioritization.workshop_recommended_hypothesis_id = hid;
+    session.hypotheses.forEach(h => h.selected_for_simulation = h.hypothesis_id === hid);
+    const rec = session.hypotheses.find(h => h.hypothesis_id === hid);
+    if (rec) {
+      const scanUc = rec.candidate_use_case || {};
+      session.selected_use_case = {
+        name:                 scanUc.name || '',
+        linked_hypothesis_id: hid,
+        decision_to_improve:  rec.decision?.decision_description || '',
+        expected_effect:      '',
+        model_archetype:      rec.model_archetype?.type || '',
+        simulation_goal:      rec.model_archetype?.description || '',
+        success_metrics:      [],
+        scope_notes:          '',
+        ...(session.selected_use_case || {}),  // preserve existing edits
+      };
+      session.selected_use_case.linked_hypothesis_id = hid;
+    }
+  }
+  renderPrioritization();
+  renderDataRequest();
+  renderSummary();
+  autosave();
+}
+
+function onPrioNotes(el) {
+  if (!session.prioritization) session.prioritization = {};
+  session.prioritization.priority_notes = el.value;
+  autosave();
+}
+
+function updUc(field, value) {
+  if (!session.selected_use_case) session.selected_use_case = {};
+  if (field === 'success_metrics_text') {
+    session.selected_use_case.success_metrics = value.split('\n').map(s => s.trim()).filter(Boolean);
+  } else {
+    session.selected_use_case[field] = value;
+  }
+  autosave();
+}
+
+function getBestEst(h) {
+  const est = h.quantification_estimates || [];
+  const hit = est.find(e => e.base_value != null);
+  return hit ? hit.base_value : null;
+}
+
+function getDataAvail(h) {
+  const dr = h.data_requirements || [];
+  if (!dr.length) return { level:'medium', label:'–' };
+  const map = { high:3, medium:2, low:1 };
+  const avg = dr.reduce((s, d) => s + (map[d.data_likelihood] || 2), 0) / dr.length;
+  if (avg >= 2.5) return { level:'high',   label:'Hög' };
+  if (avg >= 1.5) return { level:'medium', label:'Medel' };
+  return { level:'low', label:'Låg' };
+}
+
+// ── DATA REQUEST ──────────────────────────────────────────────
+function renderDataRequest() {
+  const el    = document.getElementById('screen-data');
+  const wsRec = session.prioritization?.workshop_recommended_hypothesis_id;
+  const uc    = session.selected_use_case;
+
+  if (!wsRec) {
+    el.innerHTML = `
+      <div class="screen-title">Databehov</div>
+      <div class="empty-state">
+        <div class="empty-state-icon">📊</div>
+        <p>Välj en startpunkt under <strong>Prioritering</strong> för att generera ett riktat databehov.</p>
+      </div>`;
+    return;
+  }
+
+  // Pre-populate data_request from hypothesis if empty
+  if (!session.data_request?.length) {
+    const rec = session.hypotheses?.find(h => h.hypothesis_id === wsRec);
+    if (rec?.data_requirements?.length) {
+      session.data_request = rec.data_requirements.map(d => ({
+        data_name:    d.data_name || '',
+        why_needed:   d.reason || '',
+        required:     d.required !== false,
+        likely_owner: '',
+        time_horizon: '',
+        granularity:  '',
+        format_notes: '',
+        status:       'requested',
+      }));
+    }
+  }
+
+  el.innerHTML = `
+    <div class="screen-title">Databehov</div>
+    <div class="screen-subtitle">Riktat till: ${esc(wsRec)}${uc?.name ? ' – ' + esc(uc.name) : ''}</div>
+
+    ${uc ? `
+    <div class="card" style="border-left:3px solid #1a3a5c;margin-bottom:1.1rem">
+      <div class="card-title">Kopplat use case</div>
+      <strong>${esc(uc.name||'')}</strong>
+      ${uc.decision_to_improve ? `<div class="text-muted mt-1">${esc(uc.decision_to_improve)}</div>` : ''}
+    </div>` : ''}
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.9rem">
+        <div class="card-title" style="margin:0">Dataposter</div>
+        <button class="btn btn-outline btn-sm" onclick="addDataRow()">+ Lägg till rad</button>
+      </div>
+      <div id="data-table-wrap">${buildDataTable(session.data_request || [])}</div>
+    </div>
+  `;
+}
+
+function buildDataTable(rows) {
+  if (!rows.length) return `<div class="text-muted" style="padding:0.4rem 0">Inga dataposter. Klicka "+ Lägg till rad".</div>`;
+  return `<div style="overflow-x:auto"><table class="data-table">
+    <thead><tr>
+      <th>Datapost</th><th>Varför</th><th>Krav</th><th>Ägare</th><th>Tidshorisont</th><th>Status</th><th></th>
+    </tr></thead>
+    <tbody>
+      ${rows.map((r, ri) => `<tr>
+        <td><input type="text" value="${esc(r.data_name||'')}"    oninput="updDR(${ri},'data_name',this.value)"    placeholder="Datapost"   style="min-width:110px"></td>
+        <td><input type="text" value="${esc(r.why_needed||'')}"   oninput="updDR(${ri},'why_needed',this.value)"   placeholder="Syfte"       style="min-width:130px"></td>
+        <td style="text-align:center">
+          <input type="checkbox" ${r.required?'checked':''} onchange="updDR(${ri},'required',this.checked)">
+        </td>
+        <td><input type="text" value="${esc(r.likely_owner||'')}" oninput="updDR(${ri},'likely_owner',this.value)" placeholder="Systemägare" style="min-width:90px"></td>
+        <td><input type="text" value="${esc(r.time_horizon||'')}" oninput="updDR(${ri},'time_horizon',this.value)" placeholder="T.ex. 24 mån" style="min-width:80px"></td>
+        <td>
+          <select onchange="updDR(${ri},'status',this.value)">
+            <option value="requested"    ${r.status==='requested'?'selected':''}>Efterfrågad</option>
+            <option value="provided"     ${r.status==='provided'?'selected':''}>Mottagen</option>
+            <option value="missing"      ${r.status==='missing'?'selected':''}>Saknas</option>
+            <option value="not_required" ${r.status==='not_required'?'selected':''}>Ej behövd</option>
+          </select>
+        </td>
+        <td><button class="btn-icon" onclick="rmDataRow(${ri})">×</button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+function addDataRow() {
+  if (!session.data_request) session.data_request = [];
+  session.data_request.push({ data_name:'', why_needed:'', required:true, likely_owner:'', time_horizon:'', granularity:'', format_notes:'', status:'requested' });
+  const wrap = document.getElementById('data-table-wrap');
+  if (wrap) wrap.innerHTML = buildDataTable(session.data_request);
+  autosave();
+}
+
+function rmDataRow(idx) {
+  session.data_request.splice(idx, 1);
+  const wrap = document.getElementById('data-table-wrap');
+  if (wrap) wrap.innerHTML = buildDataTable(session.data_request);
+  autosave();
+}
+
+function updDR(idx, field, value) {
+  if (!session.data_request[idx]) return;
+  session.data_request[idx][field] = value;
+  autosave();
+}
+
+// ── SUMMARY ───────────────────────────────────────────────────
+function renderSummary() {
+  const el    = document.getElementById('screen-summary');
+  const hyps  = session.hypotheses || [];
+  const wsRec = session.prioritization?.workshop_recommended_hypothesis_id;
+  const uc    = session.selected_use_case;
+  const sum   = session.summary || {};
+
+  const validated = hyps.filter(h => h.validation_status === 'validated');
+  const partial   = hyps.filter(h => h.validation_status === 'partially_validated');
+  const rejected  = hyps.filter(h => h.validation_status === 'rejected');
+
+  const valItems = validated.length
+    ? validated.map(h => `<li><strong>${esc(h.hypothesis_id||'')} – ${esc(h.title||'')}</strong>${h.actual_state_notes ? ': ' + esc(h.actual_state_notes) : ''}</li>`).join('')
+    : '<li>Inga hypoteser fullständigt validerade</li>';
+
+  const adjItems = [...partial, ...rejected].length
+    ? [...partial, ...rejected].map(h => {
+        const status = STATUS_LABELS[h.validation_status || 'not_validated'];
+        const notes  = h.actual_state_notes?.trim();
+        const finds  = (h.new_findings || []).join(', ');
+        return `<li><strong>${esc(h.hypothesis_id||'')} (${status})</strong>${notes ? ': ' + esc(notes) : ''}${finds ? '<br><span class="text-muted">Insikter: ' + esc(finds) + '</span>' : ''}</li>`;
+      }).join('')
+    : '<li>Inga justeringar gjorda</li>';
+
+  const ucItems = uc
+    ? `<li><strong>${esc(uc.name||'–')}</strong> (kopplad till ${esc(uc.linked_hypothesis_id||wsRec||'–')})</li>
+       ${uc.decision_to_improve ? `<li>Beslut: ${esc(uc.decision_to_improve)}</li>` : ''}
+       ${uc.model_archetype ? `<li>Modelltyp: ${ARCHETYPE_SV[uc.model_archetype]||uc.model_archetype}</li>` : ''}
+       ${uc.expected_effect ? `<li>Förväntad effekt: ${esc(uc.expected_effect)}</li>` : ''}`
+    : '<li>Inget use case valt ännu</li>';
+
+  const drItems = (session.data_request||[]).filter(d => d.required).length
+    ? session.data_request.filter(d => d.required).map(d => `<li><strong>${esc(d.data_name||'')}</strong>${d.why_needed ? ' – ' + esc(d.why_needed) : ''}</li>`).join('')
+    : '<li>Inga krav­data definierade</li>';
+
+  el.innerHTML = `
+    <div class="screen-title">Summering</div>
+    <div class="screen-subtitle">Sammanfattning av workshopen för ${esc(session.company_name||'')}</div>
+
+    <div class="summary-grid">
+      <div class="summary-card">
+        <h3>Vad vi validerade</h3>
+        <ul>${valItems}</ul>
+      </div>
+      <div class="summary-card">
+        <h3>Vad vi justerade</h3>
+        <ul>${adjItems}</ul>
+      </div>
+    </div>
+
+    <div class="summary-grid">
+      <div class="summary-card">
+        <h3>Valt första use case</h3>
+        <ul>${ucItems}</ul>
+      </div>
+      <div class="summary-card">
+        <h3>Kravdata</h3>
+        <ul>${drItems}</ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="form-group">
+        <label class="form-label">Nästa steg</label>
+        <textarea class="form-control" rows="3" placeholder="Ange nästa steg och åtgärder..."
+                  oninput="updSum('next_steps',this.value)">${esc(sum.next_steps||'')}</textarea>
+      </div>
+      <hr class="section-divider">
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Interna anteckningar</label>
+        <textarea class="form-control" rows="2" placeholder="Interna anteckningar (syns ej för kund)..."
+                  oninput="updSum('internal_notes',this.value)">${esc(sum.internal_notes||'')}</textarea>
+      </div>
+    </div>
+
+    ${session.status === 'completed' ? `
+    <div class="completed-banner">✓ Workshop avslutad ${sum.completed_at ? '– ' + fmtDate(sum.completed_at) : ''}</div>` : `
+    <div style="text-align:center;margin-top:1.5rem">
+      <button class="btn btn-primary" style="padding:0.7rem 2rem;font-size:0.95rem" onclick="completeWorkshop()">
+        Avsluta &amp; spara workshop
+      </button>
+    </div>`}
+
+    <hr class="section-divider" style="margin-top:2rem">
+    <div class="screen-title" style="margin-top:1.5rem">Post-workshop-analys</div>
+    <div class="screen-subtitle">Kör Claude-analys baserad på mötesanteckningar eller Fireflies-transkript</div>
+
+    <div class="card" id="pw-transcript-card">
+      <div class="form-group" style="margin-bottom:0.8rem">
+        <label class="form-label">Hämta från Fireflies</label>
+        <div style="display:flex;gap:0.6rem;align-items:center">
+          <select class="form-control" id="pw-ff-select" style="flex:1">
+            <option value="">Laddar transkript…</option>
+          </select>
+          <button class="btn btn-ghost" onclick="importFirefliesTranscript()">Importera</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Transkript / anteckningar</label>
+        <textarea class="form-control" id="pw-transcript" rows="8"
+          placeholder="Klistra in mötesanteckningar eller transkript från Jamie…"></textarea>
+      </div>
+      <button class="btn btn-primary" onclick="runPostWorkshopAnalysis()" id="pw-run-btn">
+        Kör analys
+      </button>
+    </div>
+
+    <div id="pw-analysis-result" style="display:none">
+      <div class="screen-title" style="margin-top:1.5rem;font-size:1rem">Analysresultat</div>
+      <div class="card" id="pw-analysis-content" style="white-space:pre-wrap;font-size:0.85rem;line-height:1.6"></div>
+    </div>
+  `;
+
+  loadFirefliesTranscripts();
+  loadExistingAnalysis();
+}
+
+function updSum(field, value) {
+  if (!session.summary) session.summary = {};
+  session.summary[field] = value;
+  autosave();
+}
+
+// ── POST-WORKSHOP ANALYSIS ────────────────────────────────────────────────────
+
+async function loadFirefliesTranscripts() {
+  const sel = document.getElementById('pw-ff-select');
+  if (!sel) return;
+  try {
+    const res  = await fetch('/api/fireflies/transcripts');
+    const list = await res.json();
+    if (!list.length) {
+      sel.innerHTML = '<option value="">Inga Fireflies-transkript tillgängliga</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">Välj möte…</option>' +
+      list.map(t => {
+        const date  = t.meeting_date ? new Date(t.meeting_date).toLocaleDateString('sv-SE') : '';
+        const used  = t.workshop_id ? ' (använd)' : '';
+        const label = [t.title || 'Namnlöst möte', date, used].filter(Boolean).join(' – ');
+        return `<option value="${t.id}">${label}</option>`;
+      }).join('');
+  } catch {
+    sel.innerHTML = '<option value="">Kunde inte ladda transkript</option>';
+  }
+}
+
+async function importFirefliesTranscript() {
+  const sel = document.getElementById('pw-ff-select');
+  const id  = sel?.value;
+  if (!id) return;
+  const btn = document.querySelector('[onclick="importFirefliesTranscript()"]');
+  btn.disabled = true;
+  btn.textContent = 'Hämtar…';
+  try {
+    const res  = await fetch(`/api/workshops/${WS_ID}/use-transcript/${id}`, { method: 'POST' });
+    const data = await res.json();
+    const ta   = document.getElementById('pw-transcript');
+    if (ta) ta.value = data.transcript || '';
+  } catch {
+    alert('Kunde inte hämta transkript');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Importera';
+  }
+}
+
+async function runPostWorkshopAnalysis() {
+  const transcript = (document.getElementById('pw-transcript')?.value || '').trim();
+  if (!transcript) { alert('Lägg till transkript eller anteckningar först'); return; }
+
+  const btn = document.getElementById('pw-run-btn');
+  btn.disabled = true;
+  btn.textContent = 'Analyserar…';
+
+  const resultDiv   = document.getElementById('pw-analysis-result');
+  const contentDiv  = document.getElementById('pw-analysis-content');
+  resultDiv.style.display = 'block';
+  contentDiv.textContent  = '';
+
+  try {
+    const res = await fetch(`/api/workshops/${WS_ID}/analysis`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transcript }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let   text    = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      contentDiv.textContent = text;
+      contentDiv.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  } catch (e) {
+    contentDiv.textContent = 'Fel: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Kör analys';
+  }
+}
+
+async function loadExistingAnalysis() {
+  try {
+    const res  = await fetch(`/api/workshops/${WS_ID}/analysis`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.analysis_markdown) return;
+    const resultDiv  = document.getElementById('pw-analysis-result');
+    const contentDiv = document.getElementById('pw-analysis-content');
+    if (resultDiv && contentDiv) {
+      resultDiv.style.display = 'block';
+      contentDiv.textContent  = data.analysis_markdown;
+    }
+  } catch { /* no existing analysis */ }
+}
+
+// ── ADD HYPOTHESIS MODAL ──────────────────────────────────────
+function openAddHyp() {
+  ['new-hyp-title','new-hyp-mechanism','new-hyp-decision','new-hyp-symptoms','new-hyp-usecase','new-hyp-notes']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('modal-add-hyp').classList.add('open');
+}
+function closeAddHyp() { document.getElementById('modal-add-hyp').classList.remove('open'); }
+
+function confirmAddHyp() {
+  const title = document.getElementById('new-hyp-title').value.trim();
+  if (!title) { alert('Titel krävs.'); return; }
+
+  const wIdx = session.hypotheses.filter(h => h.source === 'workshop').length + 1;
+  const newHyp = {
+    hypothesis_id:     'HW' + wIdx,
+    source:            'workshop',
+    title,
+    mechanism:         { description: document.getElementById('new-hyp-mechanism').value.trim(), drivers: [] },
+    decision:          { decision_name: document.getElementById('new-hyp-decision').value.trim(), decision_owner_role: '', decision_frequency: 'unknown', decision_type: 'process_decision', decision_description: document.getElementById('new-hyp-decision').value.trim() },
+    symptoms:          document.getElementById('new-hyp-symptoms').value.split('\n').map(s => s.trim()).filter(Boolean),
+    validation_questions:    [],
+    quantification_targets:  [],
+    candidate_use_case:      { name: document.getElementById('new-hyp-usecase').value.trim(), description: '', xzero_module: '', priority_candidate: false },
+    data_requirements:       [],
+    validation_status:       'not_validated',
+    actual_state_notes:      document.getElementById('new-hyp-notes').value.trim(),
+    customer_priority_rank:  null,
+    new_findings:            [],
+    evidence_collected:      [],
+    quantification_estimates:[],
+    selected_for_simulation: false,
+    original_scan_rank:      null,
+    current_rank:            null,
+  };
+
+  session.hypotheses.push(newHyp);
+  closeAddHyp();
+  renderAll();
+  showHypothesisScreen(session.hypotheses.length - 1);
+  autosave();
+}
+
+// ── SAVE & COMPLETE ───────────────────────────────────────────
+function setSaveStatus(text, color) {
+  const el = document.getElementById('ws-save-status');
+  if (el) { el.textContent = text; el.style.color = color || '#7da8c8'; }
+}
+
+function autosave() {
+  setSaveStatus('Ej sparad', '#d4820a');
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveNow, 1500);
+}
+
+async function saveNow() {
+  if (!session) return;
+  setSaveStatus('Sparar...', '#7da8c8');
+  session.updated_at = new Date().toISOString();
+  try {
+    const res = await fetch('/api/workshops/' + WS_ID, {
+      method:  'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ session_json: JSON.stringify(session) }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    setSaveStatus('Sparad', '#5baa7a');
+    setTimeout(() => setSaveStatus('', '#7da8c8'), 2500);
+  } catch (e) {
+    setSaveStatus('Fel vid sparning', '#d44');
+    console.error('[saveNow]', e);
+  }
+}
+
+async function completeWorkshop() {
+  if (!confirm('Avsluta och spara workshopen?')) return;
+  session.status = 'completed';
+  if (!session.summary) session.summary = {};
+  session.summary.completed_at = new Date().toISOString();
+  document.getElementById('ws-status-badge').textContent = 'Avslutad';
+  const btn = document.getElementById('btn-complete');
+  if (btn) btn.disabled = true;
+  await saveNow();
+  renderSummary();
+  showScreen('summary');
+}
+
+function exportSummary() { window.print(); }
+
+// ── UTILITIES ─────────────────────────────────────────────────
+function esc(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function fmtMsek(v) {
+  if (v == null) return '–';
+  return parseFloat(v).toFixed(1) + ' MSEK';
+}
+
+function fmtN(v) {
+  if (v == null) return '–';
+  return parseFloat(v).toFixed(1);
+}
+
+function fmtDate(iso) {
+  try { return new Date(iso).toLocaleString('sv-SE', { dateStyle:'short', timeStyle:'short' }); }
+  catch { return iso; }
+}
+</script>
+</body>
+</html>

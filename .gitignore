@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.venv/
+venv/
+dist/
+build/
+.DS_Store
+
+# Database (lives in Docker volume on server, not in repo)
+scans.db
+
+# Node
+node_modules/
+package-lock.json
