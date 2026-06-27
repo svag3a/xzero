@@ -16,7 +16,8 @@ COPY package.json package-lock.json* ./
 RUN npm install --production
 
 # Application files
-COPY main.py rule_engine.py slides_generator.js ./
+COPY main.py rule_engine.py slides_generator.js \
+     opportunity_graph.py gap_hunter.py playbook_generator.py sweden_pelagic_seed.py ./
 COPY index.html workshop.html architecture.html nda.html ./
 
 EXPOSE 8000

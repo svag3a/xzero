@@ -130,6 +130,15 @@ def init_db():
             workshop_id     TEXT
         )
     """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS opportunity_graphs (
+            id          TEXT PRIMARY KEY,
+            company     TEXT NOT NULL,
+            graph_json  TEXT NOT NULL,
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        )
+    """)
     con.commit()
     con.close()
 
@@ -3200,3 +3209,200 @@ async def link_fireflies_transcript(workshop_id: str, transcript_id: str):
     if t["summary_text"]:
         parts.append(f"\n---\n{t['summary_text']}")
     return {"transcript": "\n".join(parts)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Opportunity Graph API
+# ══════════════════════════════════════════════════════════════════════════════
+
+from opportunity_graph import (
+    NODE_CLASSES, NodeType, OpportunityGraph, RelationType,
+    Edge as GraphEdge,
+)
+from gap_hunter import summarize as gap_hunter_summarize
+from playbook_generator import generate_playbook
+
+
+def _graph_load(graph_id: str) -> OpportunityGraph:
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    row = con.execute(
+        "SELECT graph_json FROM opportunity_graphs WHERE id=?", (graph_id,)
+    ).fetchone()
+    con.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Graf hittades inte")
+    return OpportunityGraph.from_json(row["graph_json"])
+
+
+def _graph_save(graph: OpportunityGraph) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    opp = graph.get_opportunity()
+    company = opp.company_name if opp else ""
+    con = sqlite3.connect(DB_PATH)
+    con.execute(
+        """INSERT INTO opportunity_graphs (id, company, graph_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             company=excluded.company,
+             graph_json=excluded.graph_json,
+             updated_at=excluded.updated_at""",
+        (graph.opportunity_id, company, graph.to_json(), now, now),
+    )
+    con.commit()
+    con.close()
+
+
+# ── List / create ──────────────────────────────────────────────────────────────
+
+@app.get("/api/graphs")
+async def list_graphs():
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    rows = con.execute(
+        "SELECT id, company, created_at, updated_at FROM opportunity_graphs ORDER BY created_at DESC"
+    ).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+class CreateGraphRequest(BaseModel):
+    opportunity_id: Optional[str] = None
+    company_name: str
+    industry: str = ""
+
+
+@app.post("/api/graphs", status_code=201)
+async def create_graph(req: CreateGraphRequest):
+    gid = req.opportunity_id or str(uuid.uuid4())
+    graph = OpportunityGraph(gid)
+    from opportunity_graph import OpportunityNode
+    graph.add_node(OpportunityNode(
+        company_name=req.company_name,
+        industry=req.industry,
+    ))
+    _graph_save(graph)
+    return {"id": gid, "company": req.company_name}
+
+
+@app.post("/api/graphs/seed/sweden-pelagic", status_code=201)
+async def seed_sweden_pelagic():
+    from sweden_pelagic_seed import build
+    graph = build()
+    _graph_save(graph)
+    return {"id": graph.opportunity_id, "company": "Sweden Pelagic AB",
+            "nodes": len(graph._nodes), "edges": len(graph._edges)}
+
+
+# ── Read ───────────────────────────────────────────────────────────────────────
+
+@app.get("/api/graphs/{graph_id}")
+async def get_graph(graph_id: str):
+    graph = _graph_load(graph_id)
+    return graph.to_dict()
+
+
+@app.get("/api/graphs/{graph_id}/summary")
+async def get_graph_summary(graph_id: str):
+    return _graph_load(graph_id).summary()
+
+
+@app.get("/api/graphs/{graph_id}/validate")
+async def validate_graph(graph_id: str):
+    graph = _graph_load(graph_id)
+    violations = graph.validate()
+    return {
+        "graph_id": graph_id,
+        "violations": [v.model_dump() for v in violations],
+        "valid": len(violations) == 0,
+    }
+
+
+# ── Gap Hunter ────────────────────────────────────────────────────────────────
+
+@app.get("/api/graphs/{graph_id}/gaps")
+async def get_gaps(graph_id: str):
+    graph = _graph_load(graph_id)
+    return gap_hunter_summarize(graph)
+
+
+# ── Playbook ──────────────────────────────────────────────────────────────────
+
+@app.post("/api/graphs/{graph_id}/playbook")
+async def create_playbook(graph_id: str):
+    graph = _graph_load(graph_id)
+    return generate_playbook(graph)
+
+
+# ── Node mutations ────────────────────────────────────────────────────────────
+
+class AddNodeRequest(BaseModel):
+    type: str
+    data: dict
+
+
+@app.post("/api/graphs/{graph_id}/nodes", status_code=201)
+async def add_node(graph_id: str, req: AddNodeRequest):
+    graph = _graph_load(graph_id)
+    ntype = NodeType(req.type)
+    node_data = {"type": ntype, **req.data}
+    node = NODE_CLASSES[ntype](**node_data)
+    graph.add_node(node)
+    _graph_save(graph)
+    return node.model_dump()
+
+
+class UpdateNodeRequest(BaseModel):
+    data: dict
+
+
+@app.patch("/api/graphs/{graph_id}/nodes/{node_id}")
+async def update_node(graph_id: str, node_id: str, req: UpdateNodeRequest):
+    graph = _graph_load(graph_id)
+    updated = graph.update_node(node_id, **req.data)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Nod hittades inte")
+    _graph_save(graph)
+    return updated.model_dump()
+
+
+@app.delete("/api/graphs/{graph_id}/nodes/{node_id}", status_code=204)
+async def delete_node(graph_id: str, node_id: str):
+    graph = _graph_load(graph_id)
+    if not graph.remove_node(node_id):
+        raise HTTPException(status_code=404, detail="Nod hittades inte")
+    _graph_save(graph)
+
+
+# ── Edge mutations ────────────────────────────────────────────────────────────
+
+class AddEdgeRequest(BaseModel):
+    from_id: str
+    relation: str
+    to_id: str
+    metadata: dict = {}
+
+
+@app.post("/api/graphs/{graph_id}/edges", status_code=201)
+async def add_edge(graph_id: str, req: AddEdgeRequest):
+    graph = _graph_load(graph_id)
+    if not graph.get_node(req.from_id):
+        raise HTTPException(status_code=404, detail=f"from_id {req.from_id} hittades inte")
+    if not graph.get_node(req.to_id):
+        raise HTTPException(status_code=404, detail=f"to_id {req.to_id} hittades inte")
+    edge = graph.add_edge(req.from_id, RelationType(req.relation), req.to_id,
+                          **req.metadata)
+    _graph_save(graph)
+    return edge.model_dump()
+
+
+# ── Apply evidence ─────────────────────────────────────────────────────────────
+
+@app.post("/api/graphs/{graph_id}/nodes/{node_id}/apply-evidence")
+async def apply_evidence(graph_id: str, node_id: str):
+    graph = _graph_load(graph_id)
+    updated_ids = graph.apply_evidence(node_id)
+    if not updated_ids and not graph.get_node(node_id):
+        raise HTTPException(status_code=404, detail="Evidence-nod hittades inte")
+    _graph_save(graph)
+    return {"updated_node_ids": updated_ids}
