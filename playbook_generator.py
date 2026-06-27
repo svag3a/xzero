@@ -142,10 +142,12 @@ Generera ett Workshop Playbook. Svara ENDAST med ett JSON-objekt, inga förklari
 
 
 def _call_bedrock(prompt: str) -> str:
+    # us.anthropic. cross-region inference prefix requires us-east-1 regardless
+    # of where the EC2 instance runs.
     client = anthropic.AnthropicBedrock(
         aws_access_key=os.environ["AWS_ACCESS_KEY_ID"],
         aws_secret_key=os.environ["AWS_SECRET_ACCESS_KEY"],
-        aws_region=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
+        aws_region="us-east-1",
     )
     msg = client.messages.create(
         model=MODEL_ID,
