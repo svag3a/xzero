@@ -456,10 +456,10 @@
 
     .tab-btn:hover { color: var(--text); }
 
-    .tab-btn.active {
-      color: var(--accent);
-      border-bottom-color: var(--accent);
-    }
+    .tab-btn[data-tab="scan"].active     { color:#2563eb; border-bottom-color:#2563eb; }
+    .tab-btn[data-tab="workshop"].active { color:#059669; border-bottom-color:#059669; }
+    .tab-btn[data-tab="analysis"].active { color:#d97706; border-bottom-color:#d97706; }
+    .tab-btn[data-tab="db"].active       { color:#6b7280; border-bottom-color:#6b7280; }
 
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
@@ -869,9 +869,10 @@
 
 <main>
   <div class="tabs">
-    <button class="tab-btn active" data-tab="scan" onclick="switchTab('scan')">Ny analys</button>
-    <button class="tab-btn" data-tab="db" onclick="switchTab('db')">Databas</button>
-    <button class="tab-btn" data-tab="analysis" onclick="switchTab('analysis')">Post-workshop-analys</button>
+    <button class="tab-btn active" data-tab="scan"     onclick="switchTab('scan')">Scan</button>
+    <button class="tab-btn"        data-tab="workshop" onclick="switchTab('workshop')">Workshop</button>
+    <button class="tab-btn"        data-tab="analysis" onclick="switchTab('analysis')">Analys</button>
+    <button class="tab-btn"        data-tab="db"       onclick="switchTab('db')">Arkiv</button>
   </div>
 
   <!-- ── Tab: Ny analys ── -->
@@ -950,6 +951,30 @@
   </div>
 
   </div><!-- end tab-scan -->
+
+  <!-- ── Tab: Workshop ── -->
+  <div id="tab-workshop" class="tab-panel">
+    <div class="upload-card">
+      <h2>Starta workshop</h2>
+      <p style="font-size:0.875rem;color:var(--text-muted);margin-bottom:1.5rem;line-height:1.6">
+        Välj en scan att basera workshopen på. En ny workshopsession skapas och öppnas i en ny flik.
+      </p>
+
+      <div class="field">
+        <label>Scan</label>
+        <select id="workshop-scan-select"
+          style="width:100%;padding:0.65rem 0.9rem;border:1px solid var(--border);border-radius:6px;font-size:0.95rem;font-family:inherit;color:var(--text);background:var(--bg)"
+          onchange="onWorkshopScanChange()">
+          <option value="">– Välj scan –</option>
+        </select>
+        <div id="workshop-scan-meta" style="font-size:0.8rem;color:var(--text-muted);margin-top:0.35rem;min-height:1.2rem"></div>
+      </div>
+
+      <button class="btn-primary" id="workshop-start-btn" disabled onclick="startWorkshopFromTab()">
+        Starta workshop
+      </button>
+    </div>
+  </div><!-- end tab-workshop -->
 
   <!-- ── Tab: Databas ── -->
   <div id="tab-db" class="tab-panel">
@@ -1329,6 +1354,58 @@
     });
     if (name === "db")       loadScans();
     if (name === "analysis") loadWorkshopSessions();
+    if (name === "workshop") loadScansForWorkshop();
+  }
+
+  async function loadScansForWorkshop() {
+    const sel = document.getElementById("workshop-scan-select");
+    if (!sel) return;
+    const data = scansData.length ? scansData : await fetch("/scans").then(r => r.json()).catch(() => []);
+    sel.innerHTML = '<option value="">– Välj scan –</option>' +
+      data.map(s => `<option value="${s.id}">${s.company_name || "–"} · ${(s.created_at || "").slice(0, 10)}</option>`).join("");
+    document.getElementById("workshop-start-btn").disabled = true;
+    document.getElementById("workshop-scan-meta").textContent = "";
+  }
+
+  function onWorkshopScanChange() {
+    const sel  = document.getElementById("workshop-scan-select");
+    const btn  = document.getElementById("workshop-start-btn");
+    const meta = document.getElementById("workshop-scan-meta");
+    const id   = parseInt(sel.value);
+    btn.disabled = !id;
+    if (id) {
+      const s = scansData.find(s => s.id === id);
+      meta.textContent = s
+        ? [s.industry, s.revenue_msek ? s.revenue_msek + " MSEK" : null, s.hypothesis_count ? s.hypothesis_count + " hypoteser" : null]
+            .filter(Boolean).join(" · ")
+        : "";
+    } else {
+      meta.textContent = "";
+    }
+  }
+
+  async function startWorkshopFromTab() {
+    const sel  = document.getElementById("workshop-scan-select");
+    const btn  = document.getElementById("workshop-start-btn");
+    const id   = parseInt(sel.value);
+    if (!id) return;
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = "⌛ Startar...";
+    try {
+      const res = await fetch("/api/workshops", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scan_id: id }),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      window.open("/workshops/" + data.workshop_id, "_blank");
+    } catch (e) {
+      alert("Kunde inte starta workshop: " + e.message);
+    }
+    btn.disabled = false;
+    btn.innerHTML = orig;
   }
 
   // ── Standard report sections (injected before every render) ─────
