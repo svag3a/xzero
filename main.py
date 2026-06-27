@@ -3310,7 +3310,8 @@ async def backfill_graphs():
                 "analysis": ws["analysis_markdown"] or "",
             }
 
-    created, enriched, skipped = 0, 0, 0
+    created, enriched = 0, 0
+    errors: list[dict] = []
 
     for scan in scans:
         scan_id = scan["id"]
@@ -3318,13 +3319,16 @@ async def backfill_graphs():
 
         # Bootstrap if graph doesn't exist yet
         try:
-            existing = _graph_load(gid)
-            graph = existing
-        except HTTPException:
-            graph = bootstrap_from_scan(scan_id, dict(scan), scan["workshop_hypotheses"])
-            _graph_save(graph)
-            created += 1
             graph = _graph_load(gid)
+        except HTTPException:
+            try:
+                graph = bootstrap_from_scan(scan_id, dict(scan), scan["workshop_hypotheses"])
+                _graph_save(graph)
+                created += 1
+                graph = _graph_load(gid)
+            except Exception as e:
+                errors.append({"scan_id": scan_id, "phase": "bootstrap", "error": str(e)})
+                continue
 
         # Enrich with analysis if available and graph has no Evidence nodes
         ws = ws_by_scan.get(scan_id)
@@ -3335,14 +3339,13 @@ async def backfill_graphs():
                 _graph_save(graph)
                 enriched += 1
             except Exception as e:
-                print(f"[backfill] enrich failed for scan {scan_id}: {e}")
-                skipped += 1
+                errors.append({"scan_id": scan_id, "phase": "enrich", "error": str(e)})
 
     return {
         "total_scans": len(scans),
         "graphs_created": created,
         "graphs_enriched": enriched,
-        "skipped_errors": skipped,
+        "errors": errors,
     }
 
 
