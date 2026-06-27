@@ -62,7 +62,7 @@
     /* ── Layout ── */
     main {
       flex: 1;
-      max-width: 860px;
+      max-width: 1300px;
       width: 100%;
       margin: 2.5rem auto;
       padding: 0 1.5rem 3rem;
@@ -1001,9 +1001,7 @@
             <th onclick="sortTable('total_potential_msek')">Potential (MSEK)</th>
             <th onclick="sortTable('confidence')">Tillförlitlighet</th>
             <th onclick="sortTable('years_analyzed')">År</th>
-            <th onclick="sortTable('has_action_plan')">Åtgärdsplan</th>
             <th>Analys</th>
-            <th>Slides</th>
             <th>NDA</th>
             <th></th>
           </tr>
@@ -1848,29 +1846,17 @@
         <td><strong>${fmt(s.total_potential_msek, 0, " MSEK")}</strong></td>
         <td>${badge}</td>
         <td>${s.years_analyzed || "–"}</td>
-        <td style="text-align:center;vertical-align:middle">${s.has_action_plan
-          ? `<button class="btn-secondary" title="Ladda ner åtgärdsplan (PDF)"
-               style="padding:0.15rem 0.4rem;font-size:0.7rem;display:inline-block;margin:auto"
-               onclick="event.stopPropagation();downloadActionPlanPdfById(this,${s.id})">&#128196;</button>`
-          : '<span style="color:#ccc">&#8212;</span>'}</td>
         <td style="text-align:center;vertical-align:middle">${s.analysis_workshop_id
-          ? `<button class="btn-secondary" title="Ladda ner post-workshop-analys (PDF)"
+          ? `<button class="btn-secondary" title="Ladda ner analys (PDF)"
                style="padding:0.15rem 0.4rem;font-size:0.7rem;display:inline-block;margin:auto"
                onclick="event.stopPropagation();downloadAnalysisPdf(this,'${s.id}','${(s.company_name||'').replace(/'/g,'')}')">&#128202;</button>`
           : '<span style="color:#ccc">&#8212;</span>'}</td>
-        <td style="text-align:center;vertical-align:middle">
-          <button class="btn-secondary" title="Öppna workshop-slides"
-              style="padding:0.15rem 0.4rem;font-size:0.7rem;display:inline-block;margin:auto"
-              onclick="event.stopPropagation();window.open('/slides/${s.id}','_blank')">&#9707;</button>
-        </td>
         <td style="text-align:center;vertical-align:middle">
           <button class="btn-secondary" title="Skapa NDA"
               style="padding:0.15rem 0.4rem;font-size:0.7rem;display:inline-block;margin:auto"
               onclick="event.stopPropagation();window.open('/nda?scan_id=${s.id}','_blank')">&#128196;</button>
         </td>
         <td style="white-space:nowrap;display:flex;gap:0.25rem;align-items:center">
-          <button class="btn-secondary" style="padding:0.2rem 0.5rem;font-size:0.75rem" title="Starta workshop"
-              onclick="event.stopPropagation();startWorkshopFromRow(this,${s.id})">&#9654;</button>
           <button class="btn-secondary" style="padding:0.2rem 0.5rem;font-size:0.75rem" title="Ladda ner PDF"
               onclick="event.stopPropagation();downloadScanPdf(this,${s.id})">&#11015;</button>
           <button class="btn-secondary" style="padding:0.2rem 0.5rem;font-size:0.75rem" title="Ta bort"
