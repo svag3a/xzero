@@ -183,6 +183,11 @@
     .facilitation ul { list-style: none; }
     .facilitation li { font-size: 0.78rem; color: #7a5c18; padding: 0.17rem 0; }
     .facilitation li::before { content: "→ "; font-weight: 700; }
+    .pb-loading { font-size:0.76rem;color:#bbb;font-style:italic;padding:0.25rem 0; }
+    .pb-assumption li { color:#92400e !important; }
+    .pb-assumption li::before { content:"⚠ " !important; font-weight:700; }
+    .pb-success { background:#f0f7f4;border-left:3px solid #4caf7d;padding:0.3rem 0.6rem;border-radius:0 4px 4px 0;font-size:0.74rem;color:#1a5c34;margin-top:0.6rem; }
+    .pb-badge { display:inline-block;background:#d1fae5;color:#065f46;font-size:0.62rem;font-weight:700;padding:0.08rem 0.4rem;border-radius:9px;letter-spacing:0.04em;margin-left:0.5rem;vertical-align:middle;text-transform:none; }
 
     /* ── QUANT TABLE ── */
     .quant-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
@@ -350,6 +355,8 @@
 const WS_ID = window.location.pathname.split('/').filter(Boolean).pop();
 let session  = null;
 let saveTimer = null;
+let playbookCache   = null;   // cached playbook from graph API
+let playbookLoading = false;
 
 // ── LOOKUP TABLES ─────────────────────────────────────────────
 const STATUS_LABELS = {
@@ -410,10 +417,36 @@ async function loadWorkshop() {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     session = await res.json();
     renderAll();
+    if (session.scan_id) loadPlaybook(session.scan_id);
   } catch (e) {
     document.getElementById('ws-content').innerHTML =
       `<div class="empty-state"><div class="empty-state-icon">⚠️</div><p>Kunde inte ladda workshopen.<br><small>${e.message}</small></p></div>`;
   }
+}
+
+async function loadPlaybook(scanId) {
+  if (playbookLoading || playbookCache) return;
+  playbookLoading = true;
+  try {
+    const res = await fetch('/api/scans/' + scanId + '/graph/playbook', { method: 'POST' });
+    if (!res.ok) return;
+    const data = await res.json();
+    playbookCache = data.playbook || null;
+    renderAll();
+  } catch (e) {
+    console.warn('Spelbok ej tillgänglig:', e.message);
+  } finally {
+    playbookLoading = false;
+  }
+}
+
+function findPlaybookBlock(hypTitle) {
+  if (!playbookCache || !playbookCache.hypothesis_blocks) return null;
+  const tl = (hypTitle || '').toLowerCase();
+  return playbookCache.hypothesis_blocks.find(b => {
+    const btl = (b.hypothesis_title || '').toLowerCase();
+    return tl.includes(btl.slice(0, 28)) || btl.includes(tl.slice(0, 28));
+  }) || null;
 }
 
 // ── RENDER ALL ────────────────────────────────────────────────
@@ -495,10 +528,14 @@ function renderOverview() {
         </ol>
       </div>
       <div class="card">
-        <div class="card-title">Framing</div>
+        <div class="card-title">Framing${playbookCache?.opening_frame ? '<span class="pb-badge" style="font-size:0.6rem">AI-spelbok</span>' : ''}</div>
         <p style="font-size:0.875rem;line-height:1.7;color:#444;font-style:italic;margin-bottom:0.85rem">
-          "Detta är hypoteser baserade på publik data. I workshopen testar vi om de stämmer."
+          "${playbookCache?.opening_frame?.framing_statement
+            ? esc(playbookCache.opening_frame.framing_statement)
+            : 'Detta är hypoteser baserade på publik data. I workshopen testar vi om de stämmer.'}"
         </p>
+        ${playbookCache?.opening_frame?.objective ? `<div style="font-size:0.72rem;color:#888;margin-bottom:0.85rem">Syfte: ${esc(playbookCache.opening_frame.objective)} · ${playbookCache.opening_frame.duration_min||'?'} min</div>` : ''}
+        ${playbookLoading && !playbookCache ? '<div style="font-size:0.72rem;color:#bbb;font-style:italic">Genererar AI-spelbok…</div>' : ''}
         ${session.scan_total_potential_msek != null ? `
         <div style="background:#f0f7f4;border:1px solid #b4d4bc;border-radius:7px;padding:0.7rem 1rem">
           <div style="font-size:0.67rem;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#555;margin-bottom:0.15rem">Indikerad potential (scan)</div>
@@ -566,6 +603,8 @@ function buildHypPanelHTML(h, i) {
   const navNext = i < (session.hypotheses.length - 1)
     ? `<button class="btn btn-white btn-sm" onclick="showHypothesisScreen(${i+1})">Nästa →</button>` : '';
 
+  const pbBlock = findPlaybookBlock(h.title);
+
   return `
     <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:1.15rem;gap:1rem">
       <div>
@@ -576,14 +615,23 @@ function buildHypPanelHTML(h, i) {
     </div>
 
     <div class="facilitation">
-      <div class="facilitation-title">Faciliteringsstöd</div>
-      <ul>
-        <li>Stämmer detta?</li>
-        <li>Vilken del stämmer inte?</li>
-        <li>Vilket beslut är det egentligen som brister?</li>
-        <li>Hur märks detta i verksamheten?</li>
-        <li>Kan vi sätta ett ungefärligt årsbelopp?</li>
-      </ul>
+      <div class="facilitation-title">Faciliteringsstöd${pbBlock ? '<span class="pb-badge">AI-spelbok</span>' : ''}</div>
+      ${pbBlock ? `
+        <ul>${(pbBlock.validation_questions||[]).map(q=>`<li>${esc(q)}</li>`).join('')}</ul>
+        ${(pbBlock.assumption_probes||[]).length ? `
+          <div class="facilitation-title" style="margin-top:0.75rem;color:#92400e">Antaganden att testa</div>
+          <ul class="pb-assumption">${pbBlock.assumption_probes.map(q=>`<li>${esc(q)}</li>`).join('')}</ul>
+        ` : ''}
+        ${pbBlock.success_signal ? `<div class="pb-success">✓ Bekräftat när: ${esc(pbBlock.success_signal)}</div>` : ''}
+      ` : playbookLoading ? '<p class="pb-loading">Genererar spelbok…</p>' : `
+        <ul>
+          <li>Stämmer detta?</li>
+          <li>Vilken del stämmer inte?</li>
+          <li>Vilket beslut är det egentligen som brister?</li>
+          <li>Hur märks detta i verksamheten?</li>
+          <li>Kan vi sätta ett ungefärligt årsbelopp?</li>
+        </ul>
+      `}
     </div>
 
     <div class="hyp-cols">
@@ -1208,6 +1256,13 @@ function renderSummary() {
         <ul>${drItems}</ul>
       </div>
     </div>
+
+    ${playbookCache?.closing_commitments ? `
+    <div class="facilitation" style="margin-bottom:1.25rem">
+      <div class="facilitation-title">Avslutningsfrågor<span class="pb-badge">AI-spelbok</span></div>
+      <div style="font-size:0.73rem;color:#7a5c18;margin-bottom:0.4rem">${esc(playbookCache.closing_commitments.objective||'')}</div>
+      <ul>${(playbookCache.closing_commitments.questions||[]).map(q=>`<li>${esc(q)}</li>`).join('')}</ul>
+    </div>` : ''}
 
     <div class="card">
       <div class="form-group">
