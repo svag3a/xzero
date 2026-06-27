@@ -3276,6 +3276,76 @@ def _graph_save(graph: OpportunityGraph) -> None:
 
 # ── List / create ──────────────────────────────────────────────────────────────
 
+@app.post("/api/graphs/backfill")
+async def backfill_graphs():
+    """
+    Create Opportunity Graphs for all existing scans that don't have one yet.
+    Also enriches graphs that have a completed workshop analysis but no Evidence nodes.
+    """
+    from graph_bootstrap import bootstrap_from_scan, graph_id_for_scan, update_from_analysis
+
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+
+    scans = con.execute(
+        "SELECT id, company_name, industry, revenue_msek, ebit_msek, ebit_margin_pct, "
+        "years_analyzed, variation_score, e_msek, e_pct, l_msek, l_pct, i_msek, i_pct, "
+        "r_msek, r_pct, total_potential_msek, confidence, workshop_hypotheses "
+        "FROM scans ORDER BY id"
+    ).fetchall()
+
+    workshops = con.execute(
+        "SELECT id, scan_id, session_json, analysis_markdown FROM workshop_sessions "
+        "WHERE analysis_markdown IS NOT NULL"
+    ).fetchall()
+    con.close()
+
+    ws_by_scan: dict[int, dict] = {}
+    for ws in workshops:
+        sid = ws["scan_id"]
+        if sid not in ws_by_scan:
+            ws_by_scan[sid] = {
+                "id": ws["id"],
+                "session": json.loads(ws["session_json"] or "{}"),
+                "analysis": ws["analysis_markdown"] or "",
+            }
+
+    created, enriched, skipped = 0, 0, 0
+
+    for scan in scans:
+        scan_id = scan["id"]
+        gid = graph_id_for_scan(scan_id)
+
+        # Bootstrap if graph doesn't exist yet
+        try:
+            existing = _graph_load(gid)
+            graph = existing
+        except HTTPException:
+            graph = bootstrap_from_scan(scan_id, dict(scan), scan["workshop_hypotheses"])
+            _graph_save(graph)
+            created += 1
+            graph = _graph_load(gid)
+
+        # Enrich with analysis if available and graph has no Evidence nodes
+        ws = ws_by_scan.get(scan_id)
+        if ws and not graph.find_nodes(NodeType.EVIDENCE):
+            try:
+                client = get_client()
+                graph = update_from_analysis(graph, ws["analysis"], ws["session"], client)
+                _graph_save(graph)
+                enriched += 1
+            except Exception as e:
+                print(f"[backfill] enrich failed for scan {scan_id}: {e}")
+                skipped += 1
+
+    return {
+        "total_scans": len(scans),
+        "graphs_created": created,
+        "graphs_enriched": enriched,
+        "skipped_errors": skipped,
+    }
+
+
 @app.get("/api/scans/{scan_id}/graph")
 async def get_scan_graph(scan_id: int):
     """Shortcut: return the Opportunity Graph bootstrapped from this scan."""
