@@ -3290,7 +3290,7 @@ async def backfill_graphs():
     scans = con.execute(
         "SELECT id, company_name, industry, revenue_msek, ebit_msek, ebit_margin_pct, "
         "years_analyzed, variation_score, e_msek, e_pct, l_msek, l_pct, i_msek, i_pct, "
-        "r_msek, r_pct, total_potential_msek, confidence, workshop_hypotheses "
+        "r_msek, r_pct, total_potential_msek, confidence, workshop_hypotheses, report_markdown "
         "FROM scans ORDER BY id"
     ).fetchall()
 
@@ -3317,12 +3317,22 @@ async def backfill_graphs():
         scan_id = scan["id"]
         gid = graph_id_for_scan(scan_id)
 
-        # Bootstrap if graph doesn't exist yet
+        # Bootstrap if graph doesn't exist or has no hypotheses yet
         try:
             graph = _graph_load(gid)
+            needs_hypotheses = graph.get_opportunity() and not graph.find_nodes(NodeType.HYPOTHESIS)
         except HTTPException:
+            graph = None
+            needs_hypotheses = True
+
+        if graph is None or needs_hypotheses:
             try:
-                graph = bootstrap_from_scan(scan_id, dict(scan), scan["workshop_hypotheses"])
+                hyp_json = scan["workshop_hypotheses"]
+                # Fall back to extracting hypotheses from report prose
+                if not hyp_json and scan["report_markdown"]:
+                    extracted = _extract_hypotheses_from_report(scan["report_markdown"])
+                    hyp_json = json.dumps(extracted) if extracted else None
+                graph = bootstrap_from_scan(scan_id, dict(scan), hyp_json)
                 _graph_save(graph)
                 created += 1
                 graph = _graph_load(gid)
