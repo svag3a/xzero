@@ -960,6 +960,16 @@ async def save_scan(req: SaveRequest):
     con.commit()
     scan_id = cur.lastrowid
     con.close()
+
+    # Bootstrap Opportunity Graph from scan data (non-blocking, best-effort)
+    try:
+        from graph_bootstrap import bootstrap_from_scan
+        graph = bootstrap_from_scan(scan_id, data, req.workshop_hypotheses_json)
+        _graph_save(graph)
+        print(f"[graph] bootstrapped scan-{scan_id}: {len(graph._nodes)} nodes")
+    except Exception as e:
+        print(f"[graph] bootstrap failed for scan-{scan_id}: {e}")
+
     injected = _inject_standard_sections(req.report_markdown)
     return {"id": scan_id, "report_markdown": injected}
 
@@ -1801,6 +1811,17 @@ WORKSHOPKONVERSATION / TRANSKRIPT:
             con.commit()
             con.close()
             print(f"[analysis] saved for workshop {workshop_id} ({len(full_analysis)} chars)")
+
+            # Update Opportunity Graph with nodes extracted from analysis
+            try:
+                from graph_bootstrap import graph_id_for_scan, update_from_analysis
+                gid = graph_id_for_scan(scan_id)
+                graph = _graph_load(gid)
+                graph = update_from_analysis(graph, full_analysis, session, client)
+                _graph_save(graph)
+                print(f"[graph] updated {gid}: {len(graph._nodes)} nodes after analysis")
+            except Exception as e:
+                print(f"[graph] update failed for scan-{scan_id}: {e}")
         except Exception as e:
             yield f"\n\n**Fel vid analys:** {e}"
 
@@ -3254,6 +3275,31 @@ def _graph_save(graph: OpportunityGraph) -> None:
 
 
 # ── List / create ──────────────────────────────────────────────────────────────
+
+@app.get("/api/scans/{scan_id}/graph")
+async def get_scan_graph(scan_id: int):
+    """Shortcut: return the Opportunity Graph bootstrapped from this scan."""
+    from graph_bootstrap import graph_id_for_scan
+    return _graph_load(graph_id_for_scan(scan_id)).to_dict()
+
+
+@app.get("/api/scans/{scan_id}/graph/summary")
+async def get_scan_graph_summary(scan_id: int):
+    from graph_bootstrap import graph_id_for_scan
+    return _graph_load(graph_id_for_scan(scan_id)).summary()
+
+
+@app.get("/api/scans/{scan_id}/graph/gaps")
+async def get_scan_graph_gaps(scan_id: int):
+    from graph_bootstrap import graph_id_for_scan
+    return gap_hunter_summarize(_graph_load(graph_id_for_scan(scan_id)))
+
+
+@app.post("/api/scans/{scan_id}/graph/playbook")
+async def create_scan_playbook(scan_id: int):
+    from graph_bootstrap import graph_id_for_scan
+    return generate_playbook(_graph_load(graph_id_for_scan(scan_id)))
+
 
 @app.get("/api/graphs")
 async def list_graphs():
