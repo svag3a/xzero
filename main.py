@@ -10,7 +10,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -3535,3 +3535,130 @@ async def apply_evidence(graph_id: str, node_id: str):
         raise HTTPException(status_code=404, detail="Evidence-nod hittades inte")
     _graph_save(graph)
     return {"updated_node_ids": updated_ids}
+
+
+# ── Live Listener WebSocket ───────────────────────────────────────────────────
+
+def _build_listen_context(scan_id: int) -> str:
+    """Build system prompt context for live hint generation."""
+    try:
+        from graph_bootstrap import graph_id_for_scan
+        from opportunity_graph import NodeType
+        graph = _graph_load(graph_id_for_scan(scan_id))
+        opp = graph.get_opportunity()
+        company = opp.company_name if opp else "kunden"
+        hyps = graph.find_nodes(NodeType.HYPOTHESIS)
+        hyp_lines = "\n".join(
+            f"- {h.title} (status: {h.status}, confidence: {h.confidence:.0f}%)"
+            for h in sorted(hyps, key=lambda x: x.priority, reverse=True)[:5]
+        )
+        return (
+            f"Du är xZero:s AI-assistent under en discovery-workshop med {company}. "
+            f"Workshopen validerar dessa hypoteser:\n{hyp_lines}\n\n"
+            "När kunden säger något relevant — föreslå EN skarp följdfråga "
+            "(max 20 ord, på svenska) som fördjupar förståelsen eller testar ett antagande. "
+            "Bara frågan, inga inledningar eller förklaringar."
+        )
+    except Exception:
+        return (
+            "Du är xZero:s AI-assistent under en discovery-workshop. "
+            "Föreslå EN skarp följdfråga (max 20 ord, svenska) baserat på vad kunden sa. "
+            "Bara frågan."
+        )
+
+
+async def _generate_live_hint(fragment: str, context: str) -> str | None:
+    """Call Bedrock in a thread to avoid blocking the event loop."""
+    def _call():
+        try:
+            c = anthropic.AnthropicBedrock(
+                aws_access_key=os.environ["AWS_ACCESS_KEY_ID"],
+                aws_secret_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+                aws_region="us-east-1",
+            )
+            msg = c.messages.create(
+                model="us.anthropic.claude-sonnet-4-6",
+                max_tokens=80,
+                system=context,
+                messages=[{"role": "user", "content": f'Kunden sa nyss: "{fragment}"'}],
+            )
+            return msg.content[0].text.strip().strip('"')
+        except Exception:
+            return None
+
+    return await asyncio.to_thread(_call)
+
+
+@app.websocket("/ws/scans/{scan_id}/listen")
+async def ws_listen(websocket: WebSocket, scan_id: int):
+    await websocket.accept()
+
+    context = _build_listen_context(scan_id)
+
+    try:
+        from amazon_transcribe.client import TranscribeStreamingClient
+        from amazon_transcribe.model import TranscriptEvent
+    except ImportError:
+        await websocket.send_json({"type": "error", "message": "amazon-transcribe inte installerat"})
+        await websocket.close()
+        return
+
+    try:
+        tc = TranscribeStreamingClient(region="eu-west-1")
+        stream = await tc.start_stream_transcription(
+            language_code="sv-SE",
+            media_sample_rate_hz=16000,
+            media_encoding="pcm",
+        )
+    except Exception as e:
+        await websocket.send_json({"type": "error", "message": str(e)})
+        await websocket.close()
+        return
+
+    buf: list[str] = []
+    word_count = 0
+
+    async def _feed():
+        try:
+            while True:
+                data = await websocket.receive_bytes()
+                await stream.input_stream.send_audio_event(audio_chunk=data)
+        except (WebSocketDisconnect, Exception):
+            pass
+        finally:
+            try:
+                await stream.input_stream.end_stream()
+            except Exception:
+                pass
+
+    async def _read():
+        nonlocal word_count
+        try:
+            async for event in stream.output_stream:
+                if not isinstance(event, TranscriptEvent):
+                    continue
+                for result in event.transcript.results:
+                    if result.is_partial:
+                        continue
+                    text = result.alternatives[0].transcript.strip()
+                    if not text:
+                        continue
+                    buf.append(text)
+                    word_count += len(text.split())
+                    try:
+                        await websocket.send_json({"type": "transcript", "text": text})
+                    except Exception:
+                        return
+                    if word_count >= 70:
+                        word_count = 0
+                        fragment = " ".join(buf[-6:])
+                        hint = await _generate_live_hint(fragment, context)
+                        if hint:
+                            try:
+                                await websocket.send_json({"type": "hint", "question": hint})
+                            except Exception:
+                                return
+        except Exception:
+            pass
+
+    await asyncio.gather(_feed(), _read())

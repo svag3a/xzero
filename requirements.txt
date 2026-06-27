@@ -1,5 +1,7 @@
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
+amazon-transcribe>=0.6.0
+websockets>=12.0
 anthropic[bedrock]>=0.25.0
 python-multipart>=0.0.9
 pymupdf>=1.24.0

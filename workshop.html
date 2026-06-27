@@ -189,6 +189,17 @@
     .pb-success { background:#f0f7f4;border-left:3px solid #4caf7d;padding:0.3rem 0.6rem;border-radius:0 4px 4px 0;font-size:0.74rem;color:#1a5c34;margin-top:0.6rem; }
     .pb-badge { display:inline-block;background:#d1fae5;color:#065f46;font-size:0.62rem;font-weight:700;padding:0.08rem 0.4rem;border-radius:9px;letter-spacing:0.04em;margin-left:0.5rem;vertical-align:middle;text-transform:none; }
 
+    /* ── LIVE LISTENER ── */
+    .live-hint-card { background:#ecfdf5;border:1.5px solid #6ee7b7;border-radius:8px;padding:0.65rem 0.9rem;margin-bottom:0.85rem;animation:hintpop 0.35s ease; }
+    .live-hint-label { font-size:0.63rem;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:#065f46;margin-bottom:0.3rem; }
+    .live-hint-text { font-size:0.9rem;font-weight:600;color:#064e3b;line-height:1.5; }
+    @keyframes hintpop { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+    #listen-strip { position:fixed;bottom:0;left:220px;right:0;background:#111827;color:#9ca3af;font-size:0.72rem;padding:0.35rem 1rem;display:none;align-items:center;gap:0.65rem;z-index:200;border-top:1px solid #374151; }
+    #listen-transcript { flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis; }
+    .live-dot { width:7px;height:7px;border-radius:50%;background:#34d399;flex-shrink:0;animation:livepulse 1.5s infinite; }
+    @keyframes livepulse { 0%,100%{opacity:1} 50%{opacity:0.25} }
+    #btn-listen { margin-top:0.6rem;width:100%;font-size:0.74rem; }
+
     /* ── QUANT TABLE ── */
     .quant-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
     .quant-table th { background: #f0f4f8; color: #666; font-weight: 600; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.38rem 0.45rem; border-bottom: 2px solid #dde3ea; text-align: left; white-space: nowrap; }
@@ -301,7 +312,15 @@
     <button class="nav-btn" data-screen="prioritization" onclick="showScreen('prioritization')">Prioritering</button>
     <button class="nav-btn" data-screen="data" onclick="showScreen('data')">Databehov</button>
     <button class="nav-btn" data-screen="summary" onclick="showScreen('summary')">Summering</button>
+    <div class="nav-divider" style="margin-top:auto"></div>
+    <button class="nav-btn" id="btn-listen" onclick="toggleListen()">🎙 Lyssna</button>
   </nav>
+
+  <div id="listen-strip">
+    <div class="live-dot"></div>
+    <span id="listen-transcript">Lyssnar…</span>
+    <button onclick="stopListening()" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:0.8rem;flex-shrink:0">■ Stoppa</button>
+  </div>
 
   <main id="ws-content">
     <div id="screen-overview"     class="screen active"></div>
@@ -357,6 +376,13 @@ let session  = null;
 let saveTimer = null;
 let playbookCache   = null;   // cached playbook from graph API
 let playbookLoading = false;
+let liveHint        = null;   // latest AI hint from live listener
+let listenWs        = null;
+let listenStream    = null;
+let listenAudioCtx  = null;
+let listenWorklet   = null;
+let listenActive    = false;
+let currentHypIdx   = -1;
 
 // ── LOOKUP TABLES ─────────────────────────────────────────────
 const STATUS_LABELS = {
@@ -449,6 +475,89 @@ function findPlaybookBlock(hypTitle) {
   }) || null;
 }
 
+// ── LIVE LISTENER ─────────────────────────────────────────────
+async function toggleListen() {
+  listenActive ? stopListening() : await startListening();
+}
+
+async function startListening() {
+  if (!session?.scan_id) return;
+  try {
+    const displayStream = await navigator.mediaDevices.getDisplayMedia({
+      audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      video: true,
+    });
+    displayStream.getVideoTracks().forEach(t => t.stop());
+    const audioTracks = displayStream.getAudioTracks();
+    if (!audioTracks.length) {
+      alert('Inget ljud valdes. Välj Teams-fliken och bocka i "Dela flikljud".');
+      displayStream.getTracks().forEach(t => t.stop());
+      return;
+    }
+    listenStream = displayStream;
+    audioTracks[0].onended = stopListening;
+
+    listenAudioCtx = new AudioContext({ sampleRate: 16000 });
+    const workletSrc = `class P extends AudioWorkletProcessor{process(i){const c=i[0]?.[0];if(c){const o=new Int16Array(c.length);for(let i=0;i<c.length;i++)o[i]=Math.max(-32768,Math.min(32767,c[i]*32768));this.port.postMessage(o.buffer,[o.buffer])}return true}}registerProcessor('pcm',P)`;
+    await listenAudioCtx.audioWorklet.addModule(URL.createObjectURL(new Blob([workletSrc], {type:'application/javascript'})));
+    listenWorklet = new AudioWorkletNode(listenAudioCtx, 'pcm');
+
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    listenWs = new WebSocket(`${wsProto}//${location.host}/ws/scans/${session.scan_id}/listen`);
+    listenWs.binaryType = 'arraybuffer';
+
+    listenWs.onopen = () => {
+      listenActive = true;
+      _updateListenUI(true);
+      listenAudioCtx.createMediaStreamSource(listenStream).connect(listenWorklet);
+      listenWorklet.port.onmessage = e => { if (listenWs.readyState === 1) listenWs.send(e.data); };
+    };
+    listenWs.onmessage = e => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'transcript') _appendTranscript(msg.text);
+      if (msg.type === 'hint')       _showLiveHint(msg.question);
+    };
+    listenWs.onclose = stopListening;
+    listenWs.onerror = () => { alert('Anslutning till lyssnare misslyckades.'); stopListening(); };
+  } catch (e) {
+    if (e.name !== 'NotAllowedError') console.error('startListening:', e);
+    stopListening();
+  }
+}
+
+function stopListening() {
+  listenActive = false;
+  listenWorklet?.disconnect(); listenWorklet = null;
+  try { listenAudioCtx?.close(); } catch(_) {} listenAudioCtx = null;
+  listenStream?.getTracks().forEach(t => t.stop()); listenStream = null;
+  listenWs?.close(); listenWs = null;
+  _updateListenUI(false);
+}
+
+function _updateListenUI(active) {
+  const btn = document.getElementById('btn-listen');
+  const strip = document.getElementById('listen-strip');
+  if (btn) { btn.textContent = active ? '■ Stoppar' : '🎙 Lyssna'; btn.style.background = active ? '#fee2e2' : ''; btn.style.color = active ? '#b91c1c' : ''; }
+  if (strip) strip.style.display = active ? 'flex' : 'none';
+}
+
+function _appendTranscript(text) {
+  const el = document.getElementById('listen-transcript');
+  if (el) el.textContent = text;
+}
+
+function _showLiveHint(question) {
+  liveHint = question;
+  // Refresh current hyp panel in-place to show new hint
+  if (currentHypIdx >= 0 && session?.hypotheses?.[currentHypIdx]) {
+    const panel = document.getElementById('hyp-panel-' + currentHypIdx);
+    if (panel) {
+      const h = session.hypotheses[currentHypIdx];
+      panel.innerHTML = buildHypPanelHTML(h, currentHypIdx);
+    }
+  }
+}
+
 // ── RENDER ALL ────────────────────────────────────────────────
 function renderAll() {
   if (!session) return;
@@ -497,6 +606,7 @@ function showScreen(name) {
 }
 
 function showHypothesisScreen(idx) {
+  currentHypIdx = idx;
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
 
@@ -613,6 +723,12 @@ function buildHypPanelHTML(h, i) {
       </div>
       <div style="display:flex;gap:0.4rem;flex-shrink:0">${navPrev}${navNext}</div>
     </div>
+
+    ${liveHint ? `
+    <div class="live-hint-card">
+      <div class="live-hint-label">🎙 Fråga nu</div>
+      <div class="live-hint-text">${esc(liveHint)}</div>
+    </div>` : ''}
 
     <div class="facilitation">
       <div class="facilitation-title">Faciliteringsstöd${pbBlock ? '<span class="pb-badge">AI-spelbok</span>' : ''}</div>
