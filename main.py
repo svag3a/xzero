@@ -139,6 +139,18 @@ def init_db():
             updated_at  TEXT NOT NULL
         )
     """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS scan_jobs (
+            id            TEXT PRIMARY KEY,
+            orgnr         TEXT NOT NULL,
+            contact_name  TEXT,
+            contact_email TEXT NOT NULL,
+            status        TEXT DEFAULT 'pending',
+            error_msg     TEXT,
+            created_at    TEXT,
+            updated_at    TEXT
+        )
+    """)
     con.commit()
     con.close()
 
@@ -419,6 +431,9 @@ def search_web(company_name: str) -> str:
 
 app = FastAPI(title="Opportunity Scan")
 init_db()
+
+from publ import router as publ_router
+app.include_router(publ_router)
 
 app.add_middleware(
     CORSMiddleware,

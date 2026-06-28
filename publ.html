@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Opportunity Scan – xZero</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: transparent;
+    color: #1a202c;
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 2.25rem 2rem;
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.07);
+  }
+
+  .eyebrow {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #2563eb;
+    margin-bottom: 0.5rem;
+  }
+
+  h1 {
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1.3;
+    color: #0f172a;
+    margin-bottom: 0.5rem;
+  }
+
+  .subtitle {
+    font-size: 0.875rem;
+    color: #64748b;
+    line-height: 1.6;
+    margin-bottom: 1.75rem;
+  }
+
+  .field { margin-bottom: 1.1rem; }
+
+  label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 0.35rem;
+  }
+
+  input {
+    width: 100%;
+    padding: 0.6rem 0.85rem;
+    border: 1px solid #d1d5db;
+    border-radius: 7px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    color: #1a202c;
+    background: #fff;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    outline: none;
+  }
+  input:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+  }
+  input.error { border-color: #ef4444; }
+
+  .field-hint {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    margin-top: 0.25rem;
+  }
+  .field-error {
+    font-size: 0.72rem;
+    color: #ef4444;
+    margin-top: 0.25rem;
+    display: none;
+  }
+
+  .btn {
+    width: 100%;
+    padding: 0.72rem 1rem;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 7px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+    margin-top: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+  .btn:hover:not(:disabled) { background: #1d4ed8; }
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── States ── */
+  #state-form     { display: block; }
+  #state-done     { display: none; }
+  #state-error    { display: none; }
+
+  .done-icon {
+    width: 52px; height: 52px;
+    background: #dcfce7;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 1.25rem;
+    font-size: 1.5rem;
+  }
+  .done-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #0f172a;
+    text-align: center;
+    margin-bottom: 0.6rem;
+  }
+  .done-body {
+    font-size: 0.875rem;
+    color: #64748b;
+    text-align: center;
+    line-height: 1.65;
+  }
+  .done-ref {
+    display: inline-block;
+    background: #f1f5f9;
+    border-radius: 6px;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.78rem;
+    font-family: monospace;
+    color: #475569;
+    margin-top: 0.75rem;
+  }
+
+  .error-box {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 7px;
+    padding: 0.75rem 1rem;
+    font-size: 0.82rem;
+    color: #b91c1c;
+    line-height: 1.5;
+    margin-bottom: 1rem;
+  }
+
+  .divider {
+    border: none;
+    border-top: 1px solid #f1f5f9;
+    margin: 1.5rem 0;
+  }
+
+  .trust-row {
+    display: flex;
+    gap: 1.25rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .trust-item {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+
+  <!-- ── Form state ── -->
+  <div id="state-form">
+    <div class="eyebrow">xZero Opportunity Scan</div>
+    <h1>Vad är din orealiserade potential?</h1>
+    <p class="subtitle">
+      Ange ert organisationsnummer så analyserar vi er årsredovisning och
+      skickar en kostnadsfri Opportunity Scan till din e-post.
+    </p>
+
+    <form id="scan-form" novalidate>
+      <div class="field">
+        <label for="f-orgnr">Organisationsnummer</label>
+        <input id="f-orgnr" type="text" inputmode="numeric"
+               placeholder="556123-4567" autocomplete="off">
+        <div class="field-hint">10 siffror, med eller utan bindestreck</div>
+        <div class="field-error" id="err-orgnr"></div>
+      </div>
+
+      <div class="field">
+        <label for="f-name">Ditt namn</label>
+        <input id="f-name" type="text" placeholder="Anna Svensson" autocomplete="name">
+        <div class="field-error" id="err-name"></div>
+      </div>
+
+      <div class="field">
+        <label for="f-email">E-postadress</label>
+        <input id="f-email" type="email" placeholder="anna@företaget.se" autocomplete="email">
+        <div class="field-error" id="err-email"></div>
+      </div>
+
+      <button type="submit" class="btn" id="submit-btn">
+        <span class="spinner" id="spinner"></span>
+        <span id="btn-label">Beställ gratis scan</span>
+      </button>
+    </form>
+
+    <hr class="divider">
+    <div class="trust-row">
+      <span class="trust-item">✓ Kostnadsfri</span>
+      <span class="trust-item">✓ Ingen säljkontakt utan ditt samtycke</span>
+      <span class="trust-item">✓ Levereras inom 24 h</span>
+    </div>
+  </div>
+
+  <!-- ── Done state ── -->
+  <div id="state-done">
+    <div class="done-icon">✓</div>
+    <div class="done-title">Vi har tagit emot din förfrågan</div>
+    <p class="done-body">
+      Din Opportunity Scan skickas till <strong id="done-email"></strong>
+      inom 24 timmar.
+      <br><br>
+      <span class="done-ref" id="done-ref"></span>
+    </p>
+  </div>
+
+  <!-- ── Error state ── -->
+  <div id="state-error">
+    <div class="error-box" id="global-error"></div>
+    <button class="btn" onclick="showState('form')" style="margin-top:0">
+      Försök igen
+    </button>
+  </div>
+
+</div>
+
+<script>
+  function showState(s) {
+    ['form','done','error'].forEach(n =>
+      document.getElementById('state-' + n).style.display = n === s ? 'block' : 'none'
+    );
+  }
+
+  function clearErrors() {
+    document.querySelectorAll('.field-error').forEach(el => {
+      el.style.display = 'none'; el.textContent = '';
+    });
+    document.querySelectorAll('input').forEach(el => el.classList.remove('error'));
+  }
+
+  function fieldError(id, msg) {
+    const input = document.getElementById('f-' + id);
+    const err   = document.getElementById('err-' + id);
+    input.classList.add('error');
+    err.textContent = msg;
+    err.style.display = 'block';
+  }
+
+  function normalizeOrgnr(v) {
+    return v.replace(/[\s\-\.]/g, '');
+  }
+
+  function validateForm() {
+    clearErrors();
+    let ok = true;
+    const orgnr = normalizeOrgnr(document.getElementById('f-orgnr').value.trim());
+    const name  = document.getElementById('f-name').value.trim();
+    const email = document.getElementById('f-email').value.trim();
+
+    if (!/^\d{10}$/.test(orgnr)) {
+      fieldError('orgnr', 'Ange 10 siffror, t.ex. 5561234567'); ok = false;
+    }
+    if (!name) {
+      fieldError('name', 'Ange ditt namn'); ok = false;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      fieldError('email', 'Ange en giltig e-postadress'); ok = false;
+    }
+    return ok;
+  }
+
+  document.getElementById('scan-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!validateForm()) return;
+
+    const btn     = document.getElementById('submit-btn');
+    const spinner = document.getElementById('spinner');
+    const label   = document.getElementById('btn-label');
+
+    btn.disabled = true;
+    spinner.style.display = 'block';
+    label.textContent = 'Skickar...';
+
+    const orgnr = normalizeOrgnr(document.getElementById('f-orgnr').value.trim());
+    const name  = document.getElementById('f-name').value.trim();
+    const email = document.getElementById('f-email').value.trim();
+
+    try {
+      const res = await fetch('/publ/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgnr, contact_name: name, contact_email: email })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Något gick fel, försök igen.');
+      }
+
+      document.getElementById('done-email').textContent = email;
+      document.getElementById('done-ref').textContent = 'Referens: ' + data.job_id;
+      showState('done');
+
+    } catch (err) {
+      document.getElementById('global-error').textContent = err.message;
+      showState('error');
+    } finally {
+      btn.disabled = false;
+      spinner.style.display = 'none';
+      label.textContent = 'Beställ gratis scan';
+    }
+  });
+</script>
+</body>
+</html>
