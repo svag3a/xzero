@@ -10,10 +10,12 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
-from fastapi import FastAPI, UploadFile, File, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, Response
+from fastapi import FastAPI, UploadFile, File, HTTPException, WebSocket, WebSocketDisconnect, Request, Form
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, Response, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
+from itsdangerous import URLSafeSerializer, BadSignature
 import httpx
 import anthropic
 import fitz  # pymupdf
@@ -441,6 +443,69 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_AUTH_SECRET   = os.environ.get("APP_SECRET_KEY", "dev-secret-change-me")
+_AUTH_PASSWORD = os.environ.get("APP_PASSWORD", "")
+_COOKIE_NAME   = "xz_session"
+_signer        = URLSafeSerializer(_AUTH_SECRET, salt="auth")
+
+_PUBLIC_PREFIXES = ("/publ", "/login")
+
+
+def _is_authenticated(request: Request) -> bool:
+    token = request.cookies.get(_COOKIE_NAME)
+    if not token:
+        return False
+    try:
+        value = _signer.loads(token)
+        return value == "ok"
+    except BadSignature:
+        return False
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if not _AUTH_PASSWORD:
+            return await call_next(request)
+        path = request.url.path
+        if any(path.startswith(p) for p in _PUBLIC_PREFIXES):
+            return await call_next(request)
+        if not _is_authenticated(request):
+            next_url = request.url.path
+            if request.url.query:
+                next_url += "?" + request.url.query
+            return RedirectResponse(url=f"/login?next={next_url}", status_code=303)
+        return await call_next(request)
+
+
+app.add_middleware(AuthMiddleware)
+
+
+_LOGIN_HTML = (Path(__file__).parent / "login.html").read_text(encoding="utf-8")
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(next: str = "/"):
+    return _LOGIN_HTML.replace("{{ next }}", next).replace("{{ 'error' if error else '' }}", "").replace("{{ error }}", "")
+
+
+@app.post("/login")
+async def login_submit(next: str = Form(default="/"), password: str = Form(...)):
+    if _AUTH_PASSWORD and password == _AUTH_PASSWORD:
+        token = _signer.dumps("ok")
+        safe_next = next if next.startswith("/") else "/"
+        response = RedirectResponse(url=safe_next, status_code=303)
+        response.set_cookie(
+            _COOKIE_NAME, token,
+            max_age=30 * 24 * 3600,
+            httponly=True,
+            samesite="lax",
+        )
+        return response
+    html = _LOGIN_HTML.replace("{{ next }}", next)
+    html = html.replace("{{ 'error' if error else '' }}", "error")
+    html = html.replace("{{ error }}", "Fel lösenord")
+    return HTMLResponse(html, status_code=401)
 
 SYSTEM_PROMPT = """Du är en finansiell analysagent specialiserad på att identifiera och kvantifiera operativt läckage i företag.
 

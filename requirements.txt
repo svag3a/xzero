@@ -9,3 +9,4 @@ pdfminer.six>=20221105
 tavily-python>=0.3.0
 fpdf2>=2.7.9
 httpx>=0.27.0
+itsdangerous>=2.1.0

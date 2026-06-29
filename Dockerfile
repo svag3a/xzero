@@ -19,7 +19,7 @@ RUN npm install --production
 COPY main.py rule_engine.py slides_generator.js \
      opportunity_graph.py gap_hunter.py playbook_generator.py \
      sweden_pelagic_seed.py graph_bootstrap.py publ.py ./
-COPY index.html workshop.html architecture.html nda.html publ.html ./
+COPY index.html workshop.html architecture.html nda.html publ.html login.html ./
 
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
