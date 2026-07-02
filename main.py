@@ -170,6 +170,10 @@ def init_db():
             status_changed_at TEXT NOT NULL
         )
     """)
+    try:
+        con.execute("ALTER TABLE crm_leads ADD COLUMN substatus TEXT DEFAULT ''")
+    except Exception:
+        pass
     con.commit()
     con.close()
 
@@ -3764,11 +3768,17 @@ async def ws_listen(websocket: WebSocket, scan_id: int):
 # ── CRM ──────────────────────────────────────────────────────────────────────
 
 CRM_STATUSES = [
-    "Lead", "Scan skickad", "Kontaktad", "Möte bokat", "Möte genomfört",
-    "Workshop klar", "NDA skickat", "NDA signerat",
-    "Data mottaget", "Modellering",
-    "Resultat presenterat", "Offert skickad", "Affär vunnen", "Affär förlorad",
+    "Lead", "Kontaktad", "Möte", "Workshop",
+    "NDA", "Analys", "Offert", "Avslut",
 ]
+
+CRM_SUBSTATUS = {
+    "Möte":     ["Bokat", "Genomfört"],
+    "Workshop": ["Bokad", "Klar"],
+    "NDA":      ["Skickat", "Signerat"],
+    "Analys":   ["Data mottaget", "Modell klar", "Resultat presenterat"],
+    "Avslut":   ["Vunnen", "Förlorad"],
+}
 
 
 class CrmLeadCreate(BaseModel):
@@ -3779,6 +3789,7 @@ class CrmLeadCreate(BaseModel):
     contact_phone: str = ""
     notes:         str = ""
     status:        str = "Lead"
+    substatus:     str = ""
 
 
 class CrmLeadUpdate(BaseModel):
@@ -3789,6 +3800,7 @@ class CrmLeadUpdate(BaseModel):
     contact_phone: str | None = None
     notes:         str | None = None
     status:        str | None = None
+    substatus:     str | None = None
     scan_id:       int | None = None
 
 
@@ -3827,10 +3839,10 @@ async def create_crm_lead(req: CrmLeadCreate):
     con.execute(
         """INSERT INTO crm_leads
            (id, company_name, orgnr, contact_name, contact_email, contact_phone,
-            status, notes, created_at, updated_at, status_changed_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            status, substatus, notes, created_at, updated_at, status_changed_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
         (lead_id, req.company_name, req.orgnr, req.contact_name,
-         req.contact_email, req.contact_phone, req.status,
+         req.contact_email, req.contact_phone, req.status, req.substatus,
          req.notes, now, now, now)
     )
     con.commit()
@@ -3880,6 +3892,7 @@ async def update_crm_lead(lead_id: str, req: CrmLeadUpdate):
     if req.contact_email is not None: fields["contact_email"] = req.contact_email
     if req.contact_phone is not None: fields["contact_phone"] = req.contact_phone
     if req.notes         is not None: fields["notes"]         = req.notes
+    if req.substatus     is not None: fields["substatus"]     = req.substatus
     if req.scan_id       is not None: fields["scan_id"]       = req.scan_id
     if req.status is not None:
         if req.status not in CRM_STATUSES:

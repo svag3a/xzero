@@ -564,6 +564,22 @@
       font-size: 0.78rem; color: #2563eb; text-decoration: none;
     }
     .crm-scan-link:hover { text-decoration: underline; }
+    .crm-progress {
+      display: flex; gap: 3px; margin-top: 0.4rem; align-items: center;
+    }
+    .crm-progress-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #e2e8f0; flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .crm-progress-dot.filled { background: #7c3aed; }
+    .crm-progress-dot.dim    { background: #c4b5fd; }
+    .crm-tag-won  { display:inline-block; font-size:0.68rem; font-weight:700;
+      background:#dcfce7; color:#166534; border-radius:999px;
+      padding:0.15rem 0.5rem; margin-top:0.35rem; }
+    .crm-tag-lost { display:inline-block; font-size:0.68rem; font-weight:700;
+      background:#fef2f2; color:#991b1b; border-radius:999px;
+      padding:0.15rem 0.5rem; margin-top:0.35rem; }
     .crm-col-add {
       width: 100%; padding: 0.3rem; margin-top: 0.25rem;
       background: none; border: 1px dashed #d1d5db; border-radius: 6px;
@@ -1123,7 +1139,11 @@
     </div>
     <div class="crm-field">
       <label>Status</label>
-      <select id="crm-f-status"></select>
+      <select id="crm-f-status" onchange="crmUpdateSubstatusField()"></select>
+    </div>
+    <div class="crm-field" id="crm-substatus-field" style="display:none">
+      <label id="crm-substatus-label">Substatus</label>
+      <select id="crm-f-substatus"></select>
     </div>
     <div class="crm-field">
       <label>Anteckningar</label>
@@ -2517,11 +2537,17 @@
   // ── CRM ──────────────────────────────────────────────────────────────────
 
   const CRM_STATUSES = [
-    "Lead", "Scan skickad", "Kontaktad", "Möte bokat", "Möte genomfört",
-    "Workshop klar", "NDA skickat", "NDA signerat",
-    "Data mottaget", "Modellering",
-    "Resultat presenterat", "Offert skickad", "Affär vunnen", "Affär förlorad"
+    "Lead", "Kontaktad", "Möte", "Workshop",
+    "NDA", "Analys", "Offert", "Avslut"
   ];
+
+  const CRM_SUBSTATUS = {
+    "Möte":     ["Bokat", "Genomfört"],
+    "Workshop": ["Bokad", "Klar"],
+    "NDA":      ["Skickat", "Signerat"],
+    "Analys":   ["Data mottaget", "Modell klar", "Resultat presenterat"],
+    "Avslut":   ["Vunnen", "Förlorad"],
+  };
 
   let crmLeads      = [];
   let crmCurrentId  = null;
@@ -2567,6 +2593,19 @@
         const age     = l.days_in_status === 0 ? "Idag"
                       : l.days_in_status === 1 ? "1 dag"
                       : `${l.days_in_status} dagar`;
+        const steps   = CRM_SUBSTATUS[l.status];
+        let progressHtml = "";
+        if (l.status === "Avslut") {
+          if (l.substatus === "Vunnen")   progressHtml = '<span class="crm-tag-won">Vunnen</span>';
+          else if (l.substatus === "Förlorad") progressHtml = '<span class="crm-tag-lost">Förlorad</span>';
+        } else if (steps) {
+          const idx = steps.indexOf(l.substatus);
+          progressHtml = '<div class="crm-progress">' +
+            steps.map((_, i) =>
+              `<div class="crm-progress-dot ${i <= idx ? 'filled' : (idx === -1 ? '' : '')}"></div>`
+            ).join("") +
+          '</div>';
+        }
         return `<div class="crm-card" draggable="true"
                      data-id="${l.id}"
                      ondragstart="crmDragStart(event,'${l.id}')"
@@ -2574,6 +2613,7 @@
                      onclick="crmOpenPanel('${l.id}')">
           <div class="crm-card-company" title="${company}">${company}</div>
           <div class="crm-card-contact" title="${contact}">${contact}</div>
+          ${progressHtml}
           <div class="crm-card-age">${age}</div>
         </div>`;
       }).join("");
@@ -2641,6 +2681,7 @@
     document.getElementById("crm-f-phone").value        = lead?.contact_phone || "";
     document.getElementById("crm-f-status").value       = lead?.status || presetStatus || "Lead";
     document.getElementById("crm-f-notes").value        = lead?.notes         || "";
+    crmUpdateSubstatusField(lead?.substatus || "");
 
     // scan link
     const scanSec  = document.getElementById("crm-scan-section");
@@ -2666,6 +2707,20 @@
 
   function crmOpenNew(status) { crmOpenPanel(null, status || "Lead"); }
 
+  function crmUpdateSubstatusField(currentValue) {
+    const status  = document.getElementById("crm-f-status").value;
+    const steps   = CRM_SUBSTATUS[status];
+    const field   = document.getElementById("crm-substatus-field");
+    const sel     = document.getElementById("crm-f-substatus");
+    const label   = document.getElementById("crm-substatus-label");
+    if (!steps) { field.style.display = "none"; return; }
+    field.style.display = "block";
+    label.textContent = status === "Avslut" ? "Utfall" : "Steg";
+    sel.innerHTML = '<option value="">– Ej satt –</option>' +
+      steps.map(s => `<option value="${s}"${s === currentValue ? " selected" : ""}>${s}</option>`).join("");
+    if (currentValue !== undefined && sel.value !== currentValue) sel.value = "";
+  }
+
   function crmClosePanel() {
     document.getElementById("crm-overlay").classList.remove("open");
     document.getElementById("crm-panel").classList.remove("open");
@@ -2680,6 +2735,7 @@
       contact_email: document.getElementById("crm-f-email").value.trim(),
       contact_phone: document.getElementById("crm-f-phone").value.trim(),
       status:        document.getElementById("crm-f-status").value,
+      substatus:     document.getElementById("crm-f-substatus")?.value || "",
       notes:         document.getElementById("crm-f-notes").value.trim(),
     };
     if (crmCurrentId) {
