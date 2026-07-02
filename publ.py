@@ -87,14 +87,21 @@ async def publ_submit(req: ScanRequest):
     if not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', contact_email):
         return JSONResponse({"error": "Ogiltig e-postadress"}, status_code=422)
 
-    job_id = str(uuid.uuid4())[:8].upper()
-    now    = datetime.now(timezone.utc).isoformat()
+    job_id  = str(uuid.uuid4())[:8].upper()
+    lead_id = str(uuid.uuid4())[:8].upper()
+    now     = datetime.now(timezone.utc).isoformat()
 
     con = _get_db()
     con.execute(
         """INSERT INTO scan_jobs (id, orgnr, contact_name, contact_email, status, created_at, updated_at)
            VALUES (?, ?, ?, ?, 'pending', ?, ?)""",
         (job_id, orgnr, contact_name, contact_email, now, now)
+    )
+    con.execute(
+        """INSERT INTO crm_leads
+           (id, orgnr, contact_name, contact_email, status, scan_job_id, created_at, updated_at, status_changed_at)
+           VALUES (?, ?, ?, ?, 'Lead', ?, ?, ?, ?)""",
+        (lead_id, orgnr, contact_name, contact_email, job_id, now, now, now)
     )
     con.commit()
     con.close()

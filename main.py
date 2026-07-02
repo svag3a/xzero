@@ -153,6 +153,23 @@ def init_db():
             updated_at    TEXT
         )
     """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS crm_leads (
+            id                TEXT PRIMARY KEY,
+            company_name      TEXT,
+            orgnr             TEXT,
+            contact_name      TEXT,
+            contact_email     TEXT,
+            contact_phone     TEXT,
+            status            TEXT DEFAULT 'Lead',
+            notes             TEXT,
+            scan_job_id       TEXT,
+            scan_id           INTEGER,
+            created_at        TEXT NOT NULL,
+            updated_at        TEXT NOT NULL,
+            status_changed_at TEXT NOT NULL
+        )
+    """)
     con.commit()
     con.close()
 
@@ -3742,3 +3759,148 @@ async def ws_listen(websocket: WebSocket, scan_id: int):
             pass
 
     await asyncio.gather(_feed(), _read())
+
+
+# ── CRM ──────────────────────────────────────────────────────────────────────
+
+CRM_STATUSES = [
+    "Lead", "Scan skickad", "Kontaktad", "Möte bokat",
+    "Workshop genomförd", "NDA skickat", "NDA signerat",
+    "Data inväntas", "Data mottaget", "Modellering pågår",
+    "Modellering klar", "Offert skickad", "Kund", "Ej aktuell",
+]
+
+
+class CrmLeadCreate(BaseModel):
+    company_name:  str = ""
+    orgnr:         str = ""
+    contact_name:  str = ""
+    contact_email: str = ""
+    contact_phone: str = ""
+    notes:         str = ""
+    status:        str = "Lead"
+
+
+class CrmLeadUpdate(BaseModel):
+    company_name:  str | None = None
+    orgnr:         str | None = None
+    contact_name:  str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    notes:         str | None = None
+    status:        str | None = None
+    scan_id:       int | None = None
+
+
+def _crm_row_to_dict(row) -> dict:
+    d = dict(row)
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    try:
+        changed = datetime.fromisoformat(d.get("status_changed_at") or d.get("created_at"))
+        if changed.tzinfo is None:
+            changed = changed.replace(tzinfo=timezone.utc)
+        d["days_in_status"] = (now - changed).days
+    except Exception:
+        d["days_in_status"] = 0
+    return d
+
+
+@app.get("/api/crm")
+async def list_crm_leads():
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    rows = con.execute(
+        "SELECT * FROM crm_leads ORDER BY status_changed_at DESC"
+    ).fetchall()
+    con.close()
+    return [_crm_row_to_dict(r) for r in rows]
+
+
+@app.post("/api/crm", status_code=201)
+async def create_crm_lead(req: CrmLeadCreate):
+    if req.status not in CRM_STATUSES:
+        raise HTTPException(400, "Ogiltig status")
+    lead_id = str(uuid.uuid4())[:8].upper()
+    now = datetime.now(timezone.utc).isoformat()
+    con = sqlite3.connect(DB_PATH)
+    con.execute(
+        """INSERT INTO crm_leads
+           (id, company_name, orgnr, contact_name, contact_email, contact_phone,
+            status, notes, created_at, updated_at, status_changed_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (lead_id, req.company_name, req.orgnr, req.contact_name,
+         req.contact_email, req.contact_phone, req.status,
+         req.notes, now, now, now)
+    )
+    con.commit()
+    con.close()
+    return {"id": lead_id}
+
+
+@app.get("/api/crm/{lead_id}")
+async def get_crm_lead(lead_id: str):
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    row = con.execute("SELECT * FROM crm_leads WHERE id=?", (lead_id,)).fetchone()
+    if not row:
+        con.close()
+        raise HTTPException(404, "Hittades inte")
+    lead = _crm_row_to_dict(row)
+    # attach linked scan if any
+    if lead.get("scan_id"):
+        scan = con.execute(
+            "SELECT id, company_name, created_at, revenue_msek, ebit_margin_pct FROM scans WHERE id=?",
+            (lead["scan_id"],)
+        ).fetchone()
+        lead["scan"] = dict(scan) if scan else None
+    elif lead.get("scan_job_id"):
+        job = con.execute(
+            "SELECT id, orgnr, status, created_at FROM scan_jobs WHERE id=?",
+            (lead["scan_job_id"],)
+        ).fetchone()
+        lead["scan_job"] = dict(job) if job else None
+    con.close()
+    return lead
+
+
+@app.patch("/api/crm/{lead_id}")
+async def update_crm_lead(lead_id: str, req: CrmLeadUpdate):
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    row = con.execute("SELECT * FROM crm_leads WHERE id=?", (lead_id,)).fetchone()
+    if not row:
+        con.close()
+        raise HTTPException(404, "Hittades inte")
+    now = datetime.now(timezone.utc).isoformat()
+    fields = {}
+    if req.company_name  is not None: fields["company_name"]  = req.company_name
+    if req.orgnr         is not None: fields["orgnr"]         = req.orgnr
+    if req.contact_name  is not None: fields["contact_name"]  = req.contact_name
+    if req.contact_email is not None: fields["contact_email"] = req.contact_email
+    if req.contact_phone is not None: fields["contact_phone"] = req.contact_phone
+    if req.notes         is not None: fields["notes"]         = req.notes
+    if req.scan_id       is not None: fields["scan_id"]       = req.scan_id
+    if req.status is not None:
+        if req.status not in CRM_STATUSES:
+            con.close()
+            raise HTTPException(400, "Ogiltig status")
+        fields["status"] = req.status
+        fields["status_changed_at"] = now
+    fields["updated_at"] = now
+    set_clause = ", ".join(f"{k}=?" for k in fields)
+    con.execute(
+        f"UPDATE crm_leads SET {set_clause} WHERE id=?",
+        list(fields.values()) + [lead_id]
+    )
+    con.commit()
+    con.close()
+    return {"ok": True}
+
+
+@app.delete("/api/crm/{lead_id}", status_code=204)
+async def delete_crm_lead(lead_id: str):
+    con = sqlite3.connect(DB_PATH)
+    con.execute("DELETE FROM crm_leads WHERE id=?", (lead_id,))
+    con.commit()
+    con.close()

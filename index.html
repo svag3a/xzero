@@ -459,10 +459,111 @@
     .tab-btn[data-tab="scan"].active     { color:#2563eb; border-bottom-color:#2563eb; }
     .tab-btn[data-tab="workshop"].active { color:#059669; border-bottom-color:#059669; }
     .tab-btn[data-tab="analysis"].active { color:#d97706; border-bottom-color:#d97706; }
+    .tab-btn[data-tab="crm"].active      { color:#7c3aed; border-bottom-color:#7c3aed; }
     .tab-btn[data-tab="db"].active       { color:#6b7280; border-bottom-color:#6b7280; }
 
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
+
+    /* ── CRM Kanban ── */
+    .crm-toolbar {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 1.25rem; gap: 1rem; flex-wrap: wrap;
+    }
+    .crm-toolbar h2 { font-size: 1.1rem; font-weight: 700; color: #0f172a; }
+    .crm-board {
+      display: flex; gap: 0.75rem; overflow-x: auto;
+      padding-bottom: 1rem; align-items: flex-start;
+    }
+    .crm-col {
+      flex: 0 0 200px; background: #f8fafc;
+      border: 1px solid #e2e8f0; border-radius: 10px;
+      padding: 0.65rem 0.6rem; min-height: 120px;
+    }
+    .crm-col.drag-over { background: #ede9fe; border-color: #7c3aed; }
+    .crm-col-header {
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; color: #64748b;
+      margin-bottom: 0.6rem; display: flex; justify-content: space-between;
+      align-items: center;
+    }
+    .crm-col-count {
+      background: #e2e8f0; border-radius: 999px;
+      padding: 0.1rem 0.45rem; font-size: 0.68rem;
+      font-weight: 600; color: #475569;
+    }
+    .crm-card {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: 0.6rem 0.7rem; margin-bottom: 0.5rem; cursor: pointer;
+      transition: box-shadow 0.15s, border-color 0.15s;
+      draggable: true;
+    }
+    .crm-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-color: #c7d2fe; }
+    .crm-card.dragging { opacity: 0.4; }
+    .crm-card-company {
+      font-size: 0.82rem; font-weight: 700; color: #0f172a;
+      margin-bottom: 0.2rem; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .crm-card-contact {
+      font-size: 0.72rem; color: #64748b;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .crm-card-age {
+      font-size: 0.68rem; color: #94a3b8; margin-top: 0.35rem;
+    }
+
+    /* ── CRM side panel ── */
+    .crm-panel-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.25); z-index: 100;
+    }
+    .crm-panel-overlay.open { display: block; }
+    .crm-panel {
+      position: fixed; top: 0; right: 0; bottom: 0; width: 400px;
+      background: #fff; border-left: 1px solid #e2e8f0;
+      box-shadow: -4px 0 24px rgba(0,0,0,0.1);
+      z-index: 101; overflow-y: auto; padding: 1.5rem;
+      transform: translateX(100%); transition: transform 0.2s ease;
+    }
+    .crm-panel.open { transform: translateX(0); }
+    .crm-panel-close {
+      position: absolute; top: 1rem; right: 1rem;
+      background: none; border: none; cursor: pointer;
+      font-size: 1.1rem; color: #94a3b8; padding: 0.25rem 0.5rem;
+    }
+    .crm-panel-close:hover { color: #0f172a; }
+    .crm-panel h3 { font-size: 1rem; font-weight: 700; margin-bottom: 1rem; color: #0f172a; }
+    .crm-field { margin-bottom: 0.75rem; }
+    .crm-field label { font-size: 0.72rem; font-weight: 600; color: #64748b; display: block; margin-bottom: 0.2rem; }
+    .crm-field input, .crm-field select, .crm-field textarea {
+      width: 100%; border: 1px solid #d1d5db; border-radius: 6px;
+      padding: 0.45rem 0.6rem; font-size: 0.82rem; font-family: inherit;
+      color: #1a202c; background: #fff; outline: none;
+      transition: border-color 0.15s;
+    }
+    .crm-field input:focus, .crm-field select:focus, .crm-field textarea:focus {
+      border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,0.1);
+    }
+    .crm-field textarea { resize: vertical; min-height: 70px; }
+    .crm-panel-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
+    .crm-btn-save {
+      flex: 1; padding: 0.55rem; background: #7c3aed; color: #fff;
+      border: none; border-radius: 6px; font-size: 0.82rem; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+    }
+    .crm-btn-save:hover { background: #6d28d9; }
+    .crm-btn-delete {
+      padding: 0.55rem 0.75rem; background: #fef2f2; color: #b91c1c;
+      border: 1px solid #fecaca; border-radius: 6px; font-size: 0.82rem;
+      font-weight: 600; cursor: pointer; font-family: inherit;
+    }
+    .crm-btn-delete:hover { background: #fee2e2; }
+    .crm-scan-link {
+      display: inline-block; margin-top: 0.25rem;
+      font-size: 0.78rem; color: #2563eb; text-decoration: none;
+    }
+    .crm-scan-link:hover { text-decoration: underline; }
 
     /* ── Database view ── */
     .db-toolbar {
@@ -872,6 +973,7 @@
     <button class="tab-btn active" data-tab="scan"     onclick="switchTab('scan')">Scan</button>
     <button class="tab-btn"        data-tab="workshop" onclick="switchTab('workshop')">Workshop</button>
     <button class="tab-btn"        data-tab="analysis" onclick="switchTab('analysis')">Analys</button>
+    <button class="tab-btn"        data-tab="crm"      onclick="switchTab('crm')">CRM</button>
     <button class="tab-btn"        data-tab="db"       onclick="switchTab('db')">Arkiv</button>
   </div>
 
@@ -977,6 +1079,60 @@
   </div><!-- end tab-workshop -->
 
   <!-- ── Tab: Databas ── -->
+  <!-- ── CRM tab ── -->
+  <div id="tab-crm" class="tab-panel">
+    <div class="crm-toolbar">
+      <h2>Pipeline</h2>
+      <button class="action-btn" onclick="crmOpenNew()">+ Lägg till lead</button>
+    </div>
+    <div class="crm-board" id="crm-board">
+      <div style="color:#94a3b8;font-size:0.85rem;padding:1rem">Laddar…</div>
+    </div>
+  </div>
+
+  <!-- CRM side panel -->
+  <div class="crm-panel-overlay" id="crm-overlay" onclick="crmClosePanel()"></div>
+  <div class="crm-panel" id="crm-panel">
+    <button class="crm-panel-close" onclick="crmClosePanel()">✕</button>
+    <h3 id="crm-panel-title">Lead</h3>
+    <div class="crm-field">
+      <label>Bolag</label>
+      <input id="crm-f-company" type="text" placeholder="Företagsnamn">
+    </div>
+    <div class="crm-field">
+      <label>Org.nr</label>
+      <input id="crm-f-orgnr" type="text" placeholder="5561234567">
+    </div>
+    <div class="crm-field">
+      <label>Kontaktperson</label>
+      <input id="crm-f-contact-name" type="text" placeholder="Anna Svensson">
+    </div>
+    <div class="crm-field">
+      <label>E-post</label>
+      <input id="crm-f-email" type="email" placeholder="anna@företaget.se">
+    </div>
+    <div class="crm-field">
+      <label>Telefon</label>
+      <input id="crm-f-phone" type="tel" placeholder="+46 70 000 00 00">
+    </div>
+    <div class="crm-field">
+      <label>Status</label>
+      <select id="crm-f-status"></select>
+    </div>
+    <div class="crm-field">
+      <label>Anteckningar</label>
+      <textarea id="crm-f-notes" placeholder="Fritext…"></textarea>
+    </div>
+    <div class="crm-field" id="crm-scan-section" style="display:none">
+      <label>Kopplad scan</label>
+      <div id="crm-scan-info"></div>
+    </div>
+    <div class="crm-panel-actions">
+      <button class="crm-btn-save" onclick="crmSave()">Spara</button>
+      <button class="crm-btn-delete" id="crm-btn-delete" onclick="crmDelete()" style="display:none">Ta bort</button>
+    </div>
+  </div>
+
   <div id="tab-db" class="tab-panel">
     <div class="db-toolbar">
       <h2>Sparade analyser</h2>
@@ -1353,6 +1509,7 @@
     if (name === "db")       loadScans();
     if (name === "analysis") loadWorkshopSessions();
     if (name === "workshop") loadScansForWorkshop();
+    if (name === "crm")      loadCrm();
   }
 
   async function loadScansForWorkshop() {
@@ -2350,6 +2507,197 @@
     pdfBtn.disabled = false;
     pdfBtn.innerHTML = "&#128196; Ladda ner PDF";
   });
+
+  // ── CRM ──────────────────────────────────────────────────────────────────
+
+  const CRM_STATUSES = [
+    "Lead", "Scan skickad", "Kontaktad", "Möte bokat",
+    "Workshop genomförd", "NDA skickat", "NDA signerat",
+    "Data inväntas", "Data mottaget", "Modellering pågår",
+    "Modellering klar", "Offert skickad", "Kund", "Ej aktuell"
+  ];
+
+  let crmLeads      = [];
+  let crmCurrentId  = null;
+  let crmDragId     = null;
+
+  // populate status <select>
+  (function() {
+    const sel = document.getElementById("crm-f-status");
+    if (!sel) return;
+    CRM_STATUSES.forEach(s => {
+      const o = document.createElement("option");
+      o.value = o.textContent = s;
+      sel.appendChild(o);
+    });
+  })();
+
+  async function loadCrm() {
+    const board = document.getElementById("crm-board");
+    board.innerHTML = '<div style="color:#94a3b8;font-size:0.85rem;padding:1rem">Laddar…</div>';
+    try {
+      const data = await fetch("/api/crm").then(r => r.json());
+      crmLeads = data;
+      renderCrmBoard();
+    } catch(e) {
+      board.innerHTML = '<div style="color:#ef4444;font-size:0.85rem;padding:1rem">Kunde inte ladda CRM</div>';
+    }
+  }
+
+  function renderCrmBoard() {
+    const board = document.getElementById("crm-board");
+    const byStatus = {};
+    CRM_STATUSES.forEach(s => byStatus[s] = []);
+    crmLeads.forEach(l => {
+      if (byStatus[l.status]) byStatus[l.status].push(l);
+      else byStatus["Lead"].push(l);
+    });
+
+    board.innerHTML = CRM_STATUSES.map(status => {
+      const leads = byStatus[status];
+      const cards = leads.map(l => {
+        const company = l.company_name || l.orgnr || "Okänt bolag";
+        const contact = l.contact_name || l.contact_email || "";
+        const age     = l.days_in_status === 0 ? "Idag"
+                      : l.days_in_status === 1 ? "1 dag"
+                      : `${l.days_in_status} dagar`;
+        return `<div class="crm-card" draggable="true"
+                     data-id="${l.id}"
+                     ondragstart="crmDragStart(event,'${l.id}')"
+                     ondragend="crmDragEnd(event)"
+                     onclick="crmOpenPanel('${l.id}')">
+          <div class="crm-card-company" title="${company}">${company}</div>
+          <div class="crm-card-contact" title="${contact}">${contact}</div>
+          <div class="crm-card-age">${age}</div>
+        </div>`;
+      }).join("");
+
+      return `<div class="crm-col"
+                   data-status="${status}"
+                   ondragover="crmDragOver(event)"
+                   ondragleave="crmDragLeave(event)"
+                   ondrop="crmDrop(event,'${status}')">
+        <div class="crm-col-header">
+          <span>${status}</span>
+          <span class="crm-col-count">${leads.length}</span>
+        </div>
+        ${cards}
+      </div>`;
+    }).join("");
+  }
+
+  // drag-and-drop
+  function crmDragStart(e, id) {
+    crmDragId = id;
+    e.currentTarget.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+  }
+  function crmDragEnd(e) {
+    e.currentTarget.classList.remove("dragging");
+  }
+  function crmDragOver(e) {
+    e.preventDefault();
+    e.currentTarget.classList.add("drag-over");
+  }
+  function crmDragLeave(e) {
+    e.currentTarget.classList.remove("drag-over");
+  }
+  async function crmDrop(e, newStatus) {
+    e.preventDefault();
+    e.currentTarget.classList.remove("drag-over");
+    if (!crmDragId) return;
+    const lead = crmLeads.find(l => l.id === crmDragId);
+    if (!lead || lead.status === newStatus) return;
+    lead.status = newStatus;
+    renderCrmBoard();
+    await fetch(`/api/crm/${crmDragId}`, {
+      method: "PATCH",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({status: newStatus})
+    });
+    crmDragId = null;
+  }
+
+  // side panel
+  async function crmOpenPanel(id) {
+    const lead = id ? await fetch(`/api/crm/${id}`).then(r => r.json()) : null;
+    crmCurrentId = id || null;
+
+    document.getElementById("crm-panel-title").textContent = lead
+      ? (lead.company_name || lead.orgnr || "Lead")
+      : "Nytt lead";
+    document.getElementById("crm-f-company").value      = lead?.company_name  || "";
+    document.getElementById("crm-f-orgnr").value        = lead?.orgnr         || "";
+    document.getElementById("crm-f-contact-name").value = lead?.contact_name  || "";
+    document.getElementById("crm-f-email").value        = lead?.contact_email || "";
+    document.getElementById("crm-f-phone").value        = lead?.contact_phone || "";
+    document.getElementById("crm-f-status").value       = lead?.status        || "Lead";
+    document.getElementById("crm-f-notes").value        = lead?.notes         || "";
+
+    // scan link
+    const scanSec  = document.getElementById("crm-scan-section");
+    const scanInfo = document.getElementById("crm-scan-info");
+    if (lead?.scan) {
+      scanSec.style.display = "block";
+      scanInfo.innerHTML = `<a class="crm-scan-link" href="/scans/${lead.scan.id}" target="_blank">
+        ${lead.scan.company_name || "Scan"} · ${(lead.scan.created_at||"").slice(0,10)}
+      </a>`;
+    } else if (lead?.scan_job) {
+      scanSec.style.display = "block";
+      scanInfo.innerHTML = `<span style="font-size:0.78rem;color:#64748b">
+        /publ-förfrågan · ref ${lead.scan_job.id} · ${lead.scan_job.status}
+      </span>`;
+    } else {
+      scanSec.style.display = "none";
+    }
+
+    document.getElementById("crm-btn-delete").style.display = id ? "inline-block" : "none";
+    document.getElementById("crm-overlay").classList.add("open");
+    document.getElementById("crm-panel").classList.add("open");
+  }
+
+  function crmOpenNew() { crmOpenPanel(null); }
+
+  function crmClosePanel() {
+    document.getElementById("crm-overlay").classList.remove("open");
+    document.getElementById("crm-panel").classList.remove("open");
+    crmCurrentId = null;
+  }
+
+  async function crmSave() {
+    const payload = {
+      company_name:  document.getElementById("crm-f-company").value.trim(),
+      orgnr:         document.getElementById("crm-f-orgnr").value.trim(),
+      contact_name:  document.getElementById("crm-f-contact-name").value.trim(),
+      contact_email: document.getElementById("crm-f-email").value.trim(),
+      contact_phone: document.getElementById("crm-f-phone").value.trim(),
+      status:        document.getElementById("crm-f-status").value,
+      notes:         document.getElementById("crm-f-notes").value.trim(),
+    };
+    if (crmCurrentId) {
+      await fetch(`/api/crm/${crmCurrentId}`, {
+        method: "PATCH",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify(payload)
+      });
+    } else {
+      await fetch("/api/crm", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify(payload)
+      });
+    }
+    crmClosePanel();
+    loadCrm();
+  }
+
+  async function crmDelete() {
+    if (!crmCurrentId) return;
+    if (!confirm("Ta bort detta lead?")) return;
+    await fetch(`/api/crm/${crmCurrentId}`, {method: "DELETE"});
+    crmClosePanel();
+    loadCrm();
+  }
 </script>
 </body>
 </html>
