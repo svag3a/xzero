@@ -565,15 +565,13 @@
     }
     .crm-scan-link:hover { text-decoration: underline; }
     .crm-progress {
-      display: flex; gap: 3px; margin-top: 0.4rem; align-items: center;
+      display: flex; gap: 3px; margin-top: 0.4rem;
     }
-    .crm-progress-dot {
-      width: 8px; height: 8px; border-radius: 50%;
-      background: #e2e8f0; flex-shrink: 0;
-      transition: background 0.15s;
+    .crm-progress-seg {
+      flex: 1; height: 3px; border-radius: 2px;
+      background: #e2e8f0; transition: background 0.15s;
     }
-    .crm-progress-dot.filled { background: #7c3aed; }
-    .crm-progress-dot.dim    { background: #c4b5fd; }
+    .crm-progress-seg.filled { background: #7c3aed; }
     .crm-tag-won  { display:inline-block; font-size:0.68rem; font-weight:700;
       background:#dcfce7; color:#166534; border-radius:999px;
       padding:0.15rem 0.5rem; margin-top:0.35rem; }
@@ -2602,7 +2600,7 @@
           const idx = steps.indexOf(l.substatus);
           progressHtml = '<div class="crm-progress">' +
             steps.map((_, i) =>
-              `<div class="crm-progress-dot ${i <= idx ? 'filled' : (idx === -1 ? '' : '')}"></div>`
+              `<div class="crm-progress-seg ${i <= idx ? 'filled' : ''}"></div>`
             ).join("") +
           '</div>';
         }
