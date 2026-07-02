@@ -3767,7 +3767,7 @@ CRM_STATUSES = [
     "Lead", "Scan skickad", "Kontaktad", "Möte bokat", "Möte genomfört",
     "Workshop genomförd", "NDA skickat", "NDA signerat",
     "Data mottaget", "Modellering",
-    "Resultat presenterat", "Offert skickad", "Kund", "Ej aktuell",
+    "Resultat presenterat", "Offert skickad", "Affär vunnen", "Affär förlorad",
 ]
 
 
