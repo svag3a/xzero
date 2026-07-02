@@ -3766,8 +3766,8 @@ async def ws_listen(websocket: WebSocket, scan_id: int):
 CRM_STATUSES = [
     "Lead", "Scan skickad", "Kontaktad", "Möte bokat",
     "Workshop genomförd", "NDA skickat", "NDA signerat",
-    "Data inväntas", "Data mottaget", "Modellering pågår",
-    "Modellering klar", "Offert skickad", "Kund", "Ej aktuell",
+    "Data mottaget", "Modellering",
+    "Resultat presenterat", "Offert skickad", "Kund", "Ej aktuell",
 ]
 
 
