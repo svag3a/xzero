@@ -174,6 +174,10 @@ def init_db():
         con.execute("ALTER TABLE crm_leads ADD COLUMN substatus TEXT DEFAULT ''")
     except Exception:
         pass
+    try:
+        con.execute("ALTER TABLE crm_leads ADD COLUMN sort_order INTEGER DEFAULT 0")
+    except Exception:
+        pass
     con.commit()
     con.close()
 
@@ -3823,10 +3827,24 @@ async def list_crm_leads():
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     rows = con.execute(
-        "SELECT * FROM crm_leads ORDER BY status_changed_at DESC"
+        "SELECT * FROM crm_leads ORDER BY sort_order ASC, created_at ASC"
     ).fetchall()
     con.close()
     return [_crm_row_to_dict(r) for r in rows]
+
+
+class CrmReorderRequest(BaseModel):
+    ids: list[str]
+
+
+@app.post("/api/crm/reorder")
+async def reorder_crm_leads(req: CrmReorderRequest):
+    con = sqlite3.connect(DB_PATH)
+    for i, lead_id in enumerate(req.ids):
+        con.execute("UPDATE crm_leads SET sort_order=? WHERE id=?", (i, lead_id))
+    con.commit()
+    con.close()
+    return {"ok": True}
 
 
 @app.post("/api/crm", status_code=201)
@@ -3835,15 +3853,17 @@ async def create_crm_lead(req: CrmLeadCreate):
         raise HTTPException(400, "Ogiltig status")
     lead_id = str(uuid.uuid4())[:8].upper()
     now = datetime.now(timezone.utc).isoformat()
+    import time as _time
+    sort_order = int(_time.time() * 1000)
     con = sqlite3.connect(DB_PATH)
     con.execute(
         """INSERT INTO crm_leads
            (id, company_name, orgnr, contact_name, contact_email, contact_phone,
-            status, substatus, notes, created_at, updated_at, status_changed_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            status, substatus, notes, sort_order, created_at, updated_at, status_changed_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (lead_id, req.company_name, req.orgnr, req.contact_name,
          req.contact_email, req.contact_phone, req.status, req.substatus,
-         req.notes, now, now, now)
+         req.notes, sort_order, now, now, now)
     )
     con.commit()
     con.close()

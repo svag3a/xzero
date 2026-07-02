@@ -572,6 +572,8 @@
       background: #e2e8f0; transition: background 0.15s;
     }
     .crm-progress-seg.filled { background: #7c3aed; }
+    .crm-card.drag-above { border-top: 2px solid #7c3aed; }
+    .crm-card.drag-below { border-bottom: 2px solid #7c3aed; }
     .crm-tag-won  { display:inline-block; font-size:0.68rem; font-weight:700;
       background:#dcfce7; color:#166534; border-radius:999px;
       padding:0.15rem 0.5rem; margin-top:0.35rem; }
@@ -2608,6 +2610,9 @@
                      data-id="${l.id}"
                      ondragstart="crmDragStart(event,'${l.id}')"
                      ondragend="crmDragEnd(event)"
+                     ondragover="crmCardDragOver(event)"
+                     ondragleave="crmCardDragLeave(event)"
+                     ondrop="crmCardDrop(event,'${l.id}')"
                      onclick="crmOpenPanel('${l.id}')">
           <div class="crm-card-company" title="${company}">${company}</div>
           <div class="crm-card-contact" title="${contact}">${contact}</div>
@@ -2640,6 +2645,9 @@
   }
   function crmDragEnd(e) {
     e.currentTarget.classList.remove("dragging");
+    document.querySelectorAll(".crm-card").forEach(c =>
+      c.classList.remove("drag-above", "drag-below")
+    );
   }
   function crmDragOver(e) {
     e.preventDefault();
@@ -2653,14 +2661,74 @@
     e.currentTarget.classList.remove("drag-over");
     if (!crmDragId) return;
     const lead = crmLeads.find(l => l.id === crmDragId);
-    if (!lead || lead.status === newStatus) return;
+    if (!lead) return;
+    const oldStatus = lead.status;
     lead.status = newStatus;
+    // Move to end of column
+    crmLeads.splice(crmLeads.indexOf(lead), 1);
+    const lastInCol = [...crmLeads].filter(l => l.status === newStatus);
+    const insertAt  = lastInCol.length
+      ? crmLeads.indexOf(lastInCol[lastInCol.length - 1]) + 1
+      : crmLeads.length;
+    crmLeads.splice(insertAt, 0, lead);
     renderCrmBoard();
-    await fetch(`/api/crm/${crmDragId}`, {
-      method: "PATCH",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({status: newStatus})
-    });
+    const patches = [];
+    if (oldStatus !== newStatus)
+      patches.push(fetch(`/api/crm/${crmDragId}`, {
+        method: "PATCH", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({status: newStatus})
+      }));
+    const colIds = crmLeads.filter(l => l.status === newStatus).map(l => l.id);
+    patches.push(fetch("/api/crm/reorder", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ids: colIds})
+    }));
+    await Promise.all(patches);
+    crmDragId = null;
+  }
+
+  // card-level drag (reorder within or across columns)
+  function crmCardDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const card = e.currentTarget;
+    if (card.dataset.id === crmDragId) return;
+    const mid = card.getBoundingClientRect().top + card.offsetHeight / 2;
+    card.classList.remove("drag-above", "drag-below");
+    card.classList.add(e.clientY < mid ? "drag-above" : "drag-below");
+  }
+  function crmCardDragLeave(e) {
+    e.currentTarget.classList.remove("drag-above", "drag-below");
+  }
+  async function crmCardDrop(e, targetId) {
+    e.preventDefault();
+    e.stopPropagation();
+    const card = e.currentTarget;
+    const insertBefore = card.classList.contains("drag-above");
+    card.classList.remove("drag-above", "drag-below");
+    if (!crmDragId || crmDragId === targetId) { crmDragId = null; return; }
+    const dragLead   = crmLeads.find(l => l.id === crmDragId);
+    const targetLead = crmLeads.find(l => l.id === targetId);
+    if (!dragLead || !targetLead) return;
+    const oldStatus = dragLead.status;
+    const newStatus = targetLead.status;
+    crmLeads.splice(crmLeads.indexOf(dragLead), 1);
+    dragLead.status = newStatus;
+    const targetIdx = crmLeads.indexOf(targetLead);
+    crmLeads.splice(insertBefore ? targetIdx : targetIdx + 1, 0, dragLead);
+    renderCrmBoard();
+    const patches = [];
+    if (oldStatus !== newStatus)
+      patches.push(fetch(`/api/crm/${crmDragId}`, {
+        method: "PATCH", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({status: newStatus})
+      }));
+    const colIds = crmLeads.filter(l => l.status === newStatus).map(l => l.id);
+    patches.push(fetch("/api/crm/reorder", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ids: colIds})
+    }));
+    await Promise.all(patches);
     crmDragId = null;
   }
 
