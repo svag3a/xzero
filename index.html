@@ -564,6 +564,13 @@
       font-size: 0.78rem; color: #2563eb; text-decoration: none;
     }
     .crm-scan-link:hover { text-decoration: underline; }
+    .crm-col-add {
+      width: 100%; padding: 0.3rem; margin-top: 0.25rem;
+      background: none; border: 1px dashed #d1d5db; border-radius: 6px;
+      color: #94a3b8; font-size: 1rem; cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .crm-col-add:hover { border-color: #7c3aed; color: #7c3aed; }
 
     /* ── Database view ── */
     .db-toolbar {
@@ -1083,7 +1090,6 @@
   <div id="tab-crm" class="tab-panel">
     <div class="crm-toolbar">
       <h2>Pipeline</h2>
-      <button class="action-btn" onclick="crmOpenNew()">+ Lägg till lead</button>
     </div>
     <div class="crm-board" id="crm-board">
       <div style="color:#94a3b8;font-size:0.85rem;padding:1rem">Laddar…</div>
@@ -2512,7 +2518,7 @@
 
   const CRM_STATUSES = [
     "Lead", "Scan skickad", "Kontaktad", "Möte bokat", "Möte genomfört",
-    "Workshop genomförd", "NDA skickat", "NDA signerat",
+    "Workshop klar", "NDA skickat", "NDA signerat",
     "Data mottaget", "Modellering",
     "Resultat presenterat", "Offert skickad", "Affär vunnen", "Affär förlorad"
   ];
@@ -2572,16 +2578,18 @@
         </div>`;
       }).join("");
 
+      const statusEsc = status.replace(/'/g, "\\'");
       return `<div class="crm-col"
                    data-status="${status}"
                    ondragover="crmDragOver(event)"
                    ondragleave="crmDragLeave(event)"
-                   ondrop="crmDrop(event,'${status}')">
+                   ondrop="crmDrop(event,'${statusEsc}')">
         <div class="crm-col-header">
           <span>${status}</span>
           <span class="crm-col-count">${leads.length}</span>
         </div>
         ${cards}
+        <button class="crm-col-add" onclick="crmOpenNew('${statusEsc}')">+</button>
       </div>`;
     }).join("");
   }
@@ -2619,7 +2627,7 @@
   }
 
   // side panel
-  async function crmOpenPanel(id) {
+  async function crmOpenPanel(id, presetStatus) {
     const lead = id ? await fetch(`/api/crm/${id}`).then(r => r.json()) : null;
     crmCurrentId = id || null;
 
@@ -2631,7 +2639,7 @@
     document.getElementById("crm-f-contact-name").value = lead?.contact_name  || "";
     document.getElementById("crm-f-email").value        = lead?.contact_email || "";
     document.getElementById("crm-f-phone").value        = lead?.contact_phone || "";
-    document.getElementById("crm-f-status").value       = lead?.status        || "Lead";
+    document.getElementById("crm-f-status").value       = lead?.status || presetStatus || "Lead";
     document.getElementById("crm-f-notes").value        = lead?.notes         || "";
 
     // scan link
@@ -2656,7 +2664,7 @@
     document.getElementById("crm-panel").classList.add("open");
   }
 
-  function crmOpenNew() { crmOpenPanel(null); }
+  function crmOpenNew(status) { crmOpenPanel(null, status || "Lead"); }
 
   function crmClosePanel() {
     document.getElementById("crm-overlay").classList.remove("open");
