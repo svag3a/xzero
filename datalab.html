@@ -223,6 +223,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 <div class="stepper" id="stepper">
   <!-- rendered by JS -->
 </div>
+<div id="dbg" style="background:#fef9c3;border-bottom:1px solid #fbbf24;padding:0.3rem 1rem;font-size:0.75rem;font-family:monospace;color:#92400e">Laddar...</div>
 
 <div class="main">
 
@@ -527,7 +528,7 @@ async function init() {
 
     goStep(savedStep);
   } catch(e) {
-    console.error(e);
+    alert("Init-fel: " + e.message + "\n" + e.stack);
   }
 }
 
@@ -556,7 +557,10 @@ function renderStepper() {
 function goStep(n) {
   currentStep = n;
   document.querySelectorAll(".step-panel").forEach(p => p.classList.remove("active"));
-  document.getElementById(`panel-${n}`)?.classList.add("active");
+  const target = document.getElementById(`panel-${n}`);
+  if (!target) { alert("goStep(" + n + "): panel-" + n + " saknas i DOM!"); return; }
+  target.classList.add("active");
+  document.getElementById("dbg").textContent = "Steg " + n + " aktivt";
   renderStepper();
   window.scrollTo(0,0);
 
@@ -564,9 +568,11 @@ function goStep(n) {
   if (n === 3 && !document.getElementById("assess-result").style.display.includes("block")) {
     runAssessment();
   }
+  if (n === 4) renderTargetGrid();
   if (n === 5 && !document.getElementById("train-result").style.display.includes("block")) {
     runTraining();
   }
+  if (n === 7) renderRuleGrid();
   if (n === 8 && !document.getElementById("elir-result").style.display.includes("block")) {
     runElir();
   }
@@ -990,14 +996,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (currentStep === 7) renderRuleGrid();
   });
 });
-
-// Patch goStep to trigger renders
-const _goStep = goStep;
-function goStep(n) {
-  _goStep(n);
-  if (n === 4) renderTargetGrid();
-  if (n === 7) renderRuleGrid();
-}
 </script>
 </body>
 </html>
