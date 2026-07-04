@@ -28,7 +28,7 @@ LAB_DIR     = DATA_DIR / "datalab"
 LAB_DIR.mkdir(exist_ok=True)
 
 _MODEL_DIRECT  = "claude-opus-4-8"
-_MODEL_BEDROCK = "us.anthropic.claude-opus-4-8"
+_MODEL_BEDROCK = "us.anthropic.claude-sonnet-4-6"
 
 def _get_claude():
     """Return (client, model_id) — Bedrock if AWS creds available, else direct."""
@@ -131,6 +131,7 @@ Returnera ENBART detta JSON-objekt, inget annat:
 
     try:
         client, model = _get_claude()
+        logging.info(f"[datalab] calling model={model}")
         resp = client.messages.create(
             model=model,
             max_tokens=800,
@@ -142,11 +143,14 @@ Returnera ENBART detta JSON-objekt, inget annat:
             if text.startswith("json"):
                 text = text[4:]
         result = json.loads(text)
-        return result.get("generic_labels", GENERIC_LABELS), result.get("mapping", {})
+        labels = result.get("generic_labels", {})
+        if not labels:
+            logging.warning("[datalab] claude returned empty generic_labels")
+        return labels or GENERIC_LABELS, result.get("mapping", {})
     except Exception as e:
-        logging.warning(f"[datalab] claude mapping failed: {e}")
+        logging.error(f"[datalab] claude mapping failed ({type(e).__name__}): {e}")
         heuristic = suggest_mapping_heuristic(columns)
-        return GENERIC_LABELS, heuristic
+        return {"_error": str(e), **GENERIC_LABELS}, heuristic
 
 
 async def _claude_interpret_assessment(assessment: dict, mapping: dict) -> str:
