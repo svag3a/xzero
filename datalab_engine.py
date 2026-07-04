@@ -389,8 +389,20 @@ def engineer_features(df: pd.DataFrame, mapping: dict, target_col: str) -> tuple
         if c in df.columns:
             feats[c] = df[c].values
 
-    valid = feats.notna().all(axis=1)
-    return feats[valid].reset_index(drop=True), y[valid].reset_index(drop=True), dates[valid].reset_index(drop=True)
+    # Drop rows where lag/rolling features (not external) are NaN — need at least lag_1
+    lag_cols = [c for c in feats.columns if c.startswith("lag_") or c.startswith("roll_")]
+    if lag_cols:
+        valid = feats[lag_cols].notna().all(axis=1)
+    else:
+        valid = pd.Series(True, index=feats.index)
+
+    feats  = feats[valid].reset_index(drop=True)
+    y      = y[valid].reset_index(drop=True)
+    dates  = dates[valid].reset_index(drop=True)
+
+    # Fill any remaining NaN in external/date features with column median then 0
+    feats = feats.fillna(feats.median(numeric_only=True)).fillna(0)
+    return feats, y, dates
 
 
 # ── ML adapters ───────────────────────────────────────────────────────────────
