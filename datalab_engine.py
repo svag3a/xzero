@@ -183,7 +183,7 @@ def engineer_features(df: pd.DataFrame, mapping: dict, target_col: str) -> tuple
         df = df.reset_index(drop=True)
         df["__date"] = pd.RangeIndex(len(df))
 
-    y     = df[target_col].fillna(method="ffill").fillna(0)
+    y     = df[target_col].ffill().fillna(0)
     dates = df["__date"]
     feats = pd.DataFrame(index=df.index)
 

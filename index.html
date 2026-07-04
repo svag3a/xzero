@@ -2914,16 +2914,32 @@
           <td style="padding:0.4rem 0.6rem;font-family:monospace">${s.id}</td>
           <td style="padding:0.4rem 0.6rem">${s.company_name || "–"}</td>
           <td style="padding:0.4rem 0.6rem">${s.step || 1} / 8</td>
-          <td style="padding:0.4rem 0.6rem">${s.status === "completed" ? "✓ Klar" : "Pågår"}</td>
+          <td style="padding:0.4rem 0.6rem">${s.status === "completed"
+            ? '<span style="color:#059669;font-weight:600">✓ Klar</span>'
+            : '<span style="color:#d97706">Pågår</span>'}</td>
           <td style="padding:0.4rem 0.6rem;color:var(--text-muted)">${(s.created_at||"").slice(0,10)}</td>
-          <td style="padding:0.4rem 0.6rem">
+          <td style="padding:0.4rem 0.6rem;display:flex;gap:0.5rem;align-items:center">
             <a href="/datalab/page?id=${s.id}" target="_blank"
                style="color:var(--accent);font-size:0.78rem;text-decoration:none">Öppna →</a>
+            <button onclick="deleteDataLabSession('${s.id}')"
+               style="border:none;background:none;cursor:pointer;color:#9ca3af;font-size:0.78rem;padding:0"
+               title="Ta bort session">✕</button>
           </td>
         </tr>`).join("")}</tbody>
       </table>`;
     } catch(e) {
       el.innerHTML = '<span style="color:var(--red)">Kunde inte ladda sessioner.</span>';
+    }
+  }
+
+  async function deleteDataLabSession(sid) {
+    if (!confirm(`Ta bort session ${sid}?`)) return;
+    try {
+      const res = await fetch(`/api/datalab/${sid}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Fel vid borttagning");
+      loadDataLabSessions();
+    } catch(e) {
+      alert("Kunde inte ta bort: " + e.message);
     }
   }
 </script>

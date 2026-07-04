@@ -392,6 +392,22 @@ async def elir(sid: str):
     return elir_result
 
 
+@router.delete("/api/datalab/{sid}")
+async def delete_session(sid: str):
+    _get_session(sid)  # verify exists
+    con = _db()
+    con.execute("DELETE FROM datalab_sessions WHERE id=?", (sid,))
+    con.commit()
+    con.close()
+    import shutil
+    p = _session_path(sid)
+    try:
+        shutil.rmtree(str(p))
+    except Exception:
+        pass
+    return {"ok": True}
+
+
 @router.get("/api/datalab/{sid}/report")
 async def get_report(sid: str):
     sess = _get_session(sid)
