@@ -461,6 +461,7 @@
     .tab-btn[data-tab="analysis"].active { color:#d97706; border-bottom-color:#d97706; }
     .tab-btn[data-tab="crm"].active      { color:#7c3aed; border-bottom-color:#7c3aed; }
     .tab-btn[data-tab="db"].active       { color:#6b7280; border-bottom-color:#6b7280; }
+    .tab-btn[data-tab="datalab"].active  { color:#0ea5e9; border-bottom-color:#0ea5e9; }
 
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
@@ -998,6 +999,7 @@
     <button class="tab-btn"        data-tab="analysis" onclick="switchTab('analysis')">Analys</button>
     <button class="tab-btn"        data-tab="crm"      onclick="switchTab('crm')">CRM</button>
     <button class="tab-btn"        data-tab="db"       onclick="switchTab('db')">Arkiv</button>
+    <button class="tab-btn"        data-tab="datalab"  onclick="switchTab('datalab')">Data Lab</button>
   </div>
 
   <!-- ── Tab: Ny analys ── -->
@@ -1194,6 +1196,37 @@
       </table>
     </div>
   </div><!-- end tab-db -->
+
+  <!-- ── Tab: Data Lab ── -->
+  <div id="tab-datalab" class="tab-panel">
+    <div class="upload-card">
+      <h2>Data Lab</h2>
+      <p style="font-size:0.875rem;color:var(--text-muted);margin-bottom:1.5rem;line-height:1.6">
+        Validera I-faktorn från en Opportunity Scan med kundens historiska data.
+        Ladda upp ett dataset, kör AutoML och beräkna ELIR.
+      </p>
+      <div style="margin-bottom:1.5rem">
+        <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:0.4rem">Länkad scan (valfritt)</label>
+        <select id="dl-scan-select" style="border:1px solid var(--border);border-radius:6px;padding:0.45rem 0.7rem;font-size:0.85rem;font-family:inherit;width:100%;max-width:340px">
+          <option value="">– Ingen scan –</option>
+        </select>
+      </div>
+      <div style="margin-bottom:1.5rem">
+        <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:0.4rem">Hypotes (valfritt)</label>
+        <input id="dl-hypothesis" type="text" placeholder="t.ex. Kan vi prediktera svinn med 15% bättre noggrannhet?"
+               style="border:1px solid var(--border);border-radius:6px;padding:0.45rem 0.7rem;font-size:0.85rem;font-family:inherit;width:100%;max-width:500px">
+      </div>
+      <button class="btn-primary" onclick="startDataLab()">Starta Data Lab →</button>
+    </div>
+
+    <div style="margin-top:2rem">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+        <h3 style="font-size:0.95rem;font-weight:700">Tidigare sessioner</h3>
+        <button class="btn-secondary" onclick="loadDataLabSessions()" style="font-size:0.78rem;padding:0.3rem 0.7rem">&#8635; Uppdatera</button>
+      </div>
+      <div id="dl-sessions-list" style="font-size:0.85rem;color:var(--text-muted)">Laddar…</div>
+    </div>
+  </div><!-- end tab-datalab -->
 
   <!-- ── Tab: Post-workshop-analys ── -->
   <div id="tab-analysis" class="tab-panel">
@@ -1536,6 +1569,7 @@
     if (name === "analysis") loadWorkshopSessions();
     if (name === "workshop") loadScansForWorkshop();
     if (name === "crm")      loadCrm();
+    if (name === "datalab")  { loadDataLabSessions(); loadScansForDataLab(); }
   }
 
   async function loadScansForWorkshop() {
@@ -2827,6 +2861,70 @@
     await fetch(`/api/crm/${crmCurrentId}`, {method: "DELETE"});
     crmClosePanel();
     loadCrm();
+  }
+
+  // ── Data Lab ──────────────────────────────────────────────────────────────
+
+  async function loadScansForDataLab() {
+    const sel = document.getElementById("dl-scan-select");
+    if (!sel) return;
+    const data = scansData.length ? scansData : await fetch("/scans").then(r => r.json()).catch(() => []);
+    sel.innerHTML = '<option value="">– Ingen scan –</option>' +
+      data.map(s => `<option value="${s.id}">${s.company_name || "–"} · ${(s.created_at||"").slice(0,10)}</option>`).join("");
+  }
+
+  async function startDataLab() {
+    const scanId    = document.getElementById("dl-scan-select").value;
+    const hypothesis = document.getElementById("dl-hypothesis").value.trim();
+    const body = { hypothesis };
+    if (scanId) body.scan_id = parseInt(scanId);
+    try {
+      const res  = await fetch("/api/datalab", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Fel");
+      window.open(`/datalab/page?id=${data.id}`, "_blank");
+      loadDataLabSessions();
+    } catch(e) {
+      alert("Kunde inte starta Data Lab: " + e.message);
+    }
+  }
+
+  async function loadDataLabSessions() {
+    const el = document.getElementById("dl-sessions-list");
+    if (!el) return;
+    try {
+      const sessions = await fetch("/api/datalab").then(r => r.json());
+      if (!sessions.length) {
+        el.innerHTML = '<span style="color:var(--text-muted)">Inga sessioner ännu.</span>';
+        return;
+      }
+      el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+        <thead><tr style="border-bottom:1px solid var(--border)">
+          <th style="text-align:left;padding:0.4rem 0.6rem;font-weight:600">ID</th>
+          <th style="text-align:left;padding:0.4rem 0.6rem;font-weight:600">Bolag</th>
+          <th style="text-align:left;padding:0.4rem 0.6rem;font-weight:600">Steg</th>
+          <th style="text-align:left;padding:0.4rem 0.6rem;font-weight:600">Status</th>
+          <th style="text-align:left;padding:0.4rem 0.6rem;font-weight:600">Datum</th>
+          <th style="padding:0.4rem 0.6rem"></th>
+        </tr></thead>
+        <tbody>${sessions.map(s => `<tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:0.4rem 0.6rem;font-family:monospace">${s.id}</td>
+          <td style="padding:0.4rem 0.6rem">${s.company_name || "–"}</td>
+          <td style="padding:0.4rem 0.6rem">${s.step || 1} / 8</td>
+          <td style="padding:0.4rem 0.6rem">${s.status === "completed" ? "✓ Klar" : "Pågår"}</td>
+          <td style="padding:0.4rem 0.6rem;color:var(--text-muted)">${(s.created_at||"").slice(0,10)}</td>
+          <td style="padding:0.4rem 0.6rem">
+            <a href="/datalab/page?id=${s.id}" target="_blank"
+               style="color:var(--accent);font-size:0.78rem;text-decoration:none">Öppna →</a>
+          </td>
+        </tr>`).join("")}</tbody>
+      </table>`;
+    } catch(e) {
+      el.innerHTML = '<span style="color:var(--red)">Kunde inte ladda sessioner.</span>';
+    }
   }
 </script>
 </body>

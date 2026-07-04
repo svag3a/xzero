@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Lab – xZero</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #f8fafc; --surface: #fff; --border: #e2e8f0;
+  --text: #0f172a; --muted: #64748b; --faint: #94a3b8;
+  --accent: #0ea5e9; --accent-dark: #0284c7;
+  --green: #059669; --red: #dc2626; --amber: #d97706;
+  --radius: 10px;
+}
+
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+       background: var(--bg); color: var(--text); min-height: 100vh; }
+
+/* ── Top bar ── */
+.topbar {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 0 1.5rem; height: 56px; display: flex; align-items: center;
+  justify-content: space-between; position: sticky; top: 0; z-index: 10;
+}
+.topbar-left { display: flex; align-items: center; gap: 1rem; }
+.back-link { color: var(--muted); font-size: 0.82rem; text-decoration: none; }
+.back-link:hover { color: var(--text); }
+.lab-title { font-size: 0.95rem; font-weight: 700; color: var(--text); }
+.lab-company { font-size: 0.78rem; color: var(--muted); }
+
+/* ── Stepper ── */
+.stepper {
+  display: flex; align-items: center; gap: 0;
+  overflow-x: auto; padding: 0 1.5rem;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.step-item {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.75rem 0.9rem; white-space: nowrap; cursor: pointer;
+  border-bottom: 2px solid transparent; transition: all 0.15s;
+  font-size: 0.78rem; color: var(--faint);
+}
+.step-item.done  { color: var(--green); }
+.step-item.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.step-item.clickable:hover { color: var(--text); }
+.step-num {
+  width: 20px; height: 20px; border-radius: 50%; font-size: 0.68rem;
+  font-weight: 700; display: flex; align-items: center; justify-content: center;
+  background: var(--border); color: var(--muted); flex-shrink: 0;
+}
+.step-item.done  .step-num { background: #dcfce7; color: var(--green); }
+.step-item.active .step-num { background: #e0f2fe; color: var(--accent); }
+.step-sep { color: var(--border); font-size: 0.75rem; }
+
+/* ── Main content ── */
+.main { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+.step-panel { display: none; }
+.step-panel.active { display: block; }
+
+.panel-title { font-size: 1.15rem; font-weight: 700; margin-bottom: 0.35rem; }
+.panel-sub { font-size: 0.85rem; color: var(--muted); margin-bottom: 1.5rem; line-height: 1.5; }
+
+/* ── Cards ── */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1rem;
+}
+.card-title { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em;
+              text-transform: uppercase; color: var(--muted); margin-bottom: 1rem; }
+
+/* ── Upload zone ── */
+.upload-zone {
+  border: 2px dashed var(--border); border-radius: var(--radius);
+  padding: 2.5rem; text-align: center; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.upload-zone:hover, .upload-zone.drag { border-color: var(--accent); background: #f0f9ff; }
+.upload-zone input { display: none; }
+.upload-icon { font-size: 2rem; margin-bottom: 0.75rem; }
+.upload-label { font-size: 0.9rem; color: var(--muted); }
+.upload-label span { color: var(--accent); font-weight: 600; cursor: pointer; }
+
+/* ── Stat grid ── */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem; }
+.stat-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+            padding: 0.75rem 1rem; }
+.stat-label { font-size: 0.7rem; color: var(--muted); margin-bottom: 0.2rem; }
+.stat-value { font-size: 1.1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ── Mapping table ── */
+.mapping-table { width: 100%; border-collapse: collapse; }
+.mapping-table th { font-size: 0.72rem; font-weight: 700; color: var(--muted);
+                    text-transform: uppercase; letter-spacing: 0.05em;
+                    padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border);
+                    text-align: left; }
+.mapping-table td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border);
+                    font-size: 0.85rem; vertical-align: middle; }
+.mapping-table select {
+  border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.6rem;
+  font-size: 0.82rem; font-family: inherit; width: 100%; background: var(--surface);
+  color: var(--text); outline: none;
+}
+.mapping-table select:focus { border-color: var(--accent); }
+
+/* ── Quality score ── */
+.quality-bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; margin: 0.5rem 0; }
+.quality-fill { height: 100%; border-radius: 4px; transition: width 0.4s; }
+.issue-list { list-style: none; }
+.issue-list li { font-size: 0.82rem; color: var(--amber); padding: 0.25rem 0;
+                 display: flex; gap: 0.4rem; }
+.issue-list li::before { content: "⚠"; }
+.interpretation-box { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px;
+                      padding: 1rem; font-size: 0.85rem; line-height: 1.65; color: #0c4a6e; }
+
+/* ── Target selector ── */
+.target-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.6rem; }
+.target-btn {
+  padding: 0.65rem 1rem; border: 1.5px solid var(--border); border-radius: 8px;
+  background: var(--surface); font-size: 0.82rem; cursor: pointer; text-align: left;
+  transition: border-color 0.15s, background 0.15s; font-family: inherit;
+}
+.target-btn:hover { border-color: var(--accent); background: #f0f9ff; }
+.target-btn.selected { border-color: var(--accent); background: #e0f2fe; color: #0c4a6e; font-weight: 600; }
+
+/* ── Training progress ── */
+.training-status { text-align: center; padding: 3rem 1rem; }
+.spinner-lg {
+  width: 40px; height: 40px; border: 3px solid var(--border);
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin 0.8s linear infinite; margin: 0 auto 1rem;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Leaderboard ── */
+.leaderboard { width: 100%; border-collapse: collapse; }
+.leaderboard th { font-size: 0.72rem; font-weight: 700; color: var(--muted);
+                  text-transform: uppercase; padding: 0.5rem 0.75rem;
+                  border-bottom: 1px solid var(--border); text-align: right; }
+.leaderboard th:first-child { text-align: left; }
+.leaderboard td { padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border);
+                  font-size: 0.85rem; text-align: right; font-variant-numeric: tabular-nums; }
+.leaderboard td:first-child { text-align: left; font-weight: 600; }
+.leaderboard tr.best td { background: #f0fdf4; }
+.leaderboard tr.best td:first-child { color: var(--green); }
+
+/* ── SVG chart ── */
+.chart-wrap { width: 100%; overflow-x: auto; }
+.chart-wrap svg { display: block; }
+
+/* ── Simulation rules ── */
+.rule-grid { display: grid; gap: 0.5rem; }
+.rule-btn {
+  padding: 0.75rem 1rem; border: 1.5px solid var(--border); border-radius: 8px;
+  background: var(--surface); text-align: left; cursor: pointer; font-family: inherit;
+  font-size: 0.85rem; transition: border-color 0.15s, background 0.15s;
+}
+.rule-btn:hover { border-color: var(--accent); background: #f0f9ff; }
+.rule-btn.selected { border-color: var(--accent); background: #e0f2fe; font-weight: 600; }
+
+/* ── ELIR result ── */
+.elir-hero {
+  text-align: center; padding: 2rem 1rem 1.5rem;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-radius: var(--radius); border: 1px solid #bae6fd; margin-bottom: 1rem;
+}
+.elir-i { font-size: 3.5rem; font-weight: 800; color: var(--accent); line-height: 1; }
+.elir-label { font-size: 0.82rem; color: var(--muted); margin-top: 0.25rem; }
+.elir-conf { display: inline-block; margin-top: 0.75rem; padding: 0.2rem 0.7rem;
+             border-radius: 999px; font-size: 0.72rem; font-weight: 700; }
+.elir-conf.hög { background: #dcfce7; color: var(--green); }
+.elir-conf.medium { background: #fef9c3; color: #854d0e; }
+.elir-conf.låg { background: #fef2f2; color: var(--red); }
+.narrative-box { background: var(--surface); border: 1px solid var(--border);
+                 border-radius: 8px; padding: 1.25rem; font-size: 0.875rem;
+                 line-height: 1.7; color: var(--text); }
+
+/* ── Nav buttons ── */
+.step-nav { display: flex; gap: 0.75rem; margin-top: 1.5rem; justify-content: flex-end; }
+.btn-primary {
+  padding: 0.65rem 1.5rem; background: var(--accent); color: #fff;
+  border: none; border-radius: 7px; font-size: 0.9rem; font-weight: 600;
+  font-family: inherit; cursor: pointer; display: flex; align-items: center; gap: 0.4rem;
+  transition: background 0.15s;
+}
+.btn-primary:hover:not(:disabled) { background: var(--accent-dark); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-secondary {
+  padding: 0.65rem 1.25rem; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 7px; font-size: 0.9rem;
+  font-family: inherit; cursor: pointer; transition: background 0.15s;
+}
+.btn-secondary:hover { background: var(--bg); }
+
+.mini-spinner {
+  width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite;
+  display: none;
+}
+
+/* ── Data table preview ── */
+.data-preview { overflow-x: auto; }
+.data-preview table { border-collapse: collapse; font-size: 0.78rem; width: 100%; }
+.data-preview th, .data-preview td { padding: 0.35rem 0.6rem; border: 1px solid var(--border); white-space: nowrap; }
+.data-preview th { background: var(--bg); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <a class="back-link" href="/">← Tillbaka</a>
+    <div>
+      <div class="lab-title">Data Lab</div>
+      <div class="lab-company" id="lab-company">–</div>
+    </div>
+  </div>
+  <div id="topbar-status" style="font-size:0.78rem;color:var(--muted)"></div>
+</div>
+
+<div class="stepper" id="stepper">
+  <!-- rendered by JS -->
+</div>
+
+<div class="main">
+
+  <!-- Step 1: Dataset -->
+  <div class="step-panel active" id="panel-1">
+    <div class="panel-title">Steg 1 – Dataset</div>
+    <div class="panel-sub">Ladda upp kundens historiska data i Excel- eller CSV-format.</div>
+
+    <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()"
+         ondragover="event.preventDefault();this.classList.add('drag')"
+         ondragleave="this.classList.remove('drag')"
+         ondrop="handleFileDrop(event)">
+      <input type="file" id="file-input" accept=".csv,.xlsx,.xls" onchange="handleFileSelect(event)">
+      <div class="upload-icon">📂</div>
+      <div class="upload-label">
+        Dra hit en fil eller <span>välj från datorn</span><br>
+        <small style="color:var(--faint)">Excel (.xlsx, .xls) eller CSV</small>
+      </div>
+    </div>
+
+    <div id="upload-progress" style="display:none; text-align:center; padding:2rem;">
+      <div class="spinner-lg"></div>
+      <div style="color:var(--muted); font-size:0.85rem; margin-top:0.5rem">Analyserar fil…</div>
+    </div>
+
+    <div id="upload-result" style="display:none">
+      <div class="card" style="margin-top:1.25rem">
+        <div class="card-title">Översikt</div>
+        <div class="stat-grid" id="meta-stats"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Förhandsgranskning</div>
+        <div class="data-preview" id="data-preview"></div>
+      </div>
+    </div>
+
+    <div class="step-nav">
+      <button class="btn-primary" id="btn-1-next" onclick="goStep(2)" disabled>
+        Nästa: Datamappning →
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 2: Mapping -->
+  <div class="step-panel" id="panel-2">
+    <div class="panel-title">Steg 2 – Datamappning</div>
+    <div class="panel-sub">Bekräfta hur kundens kolumner mappar mot xZeros generiska datamodell. AI har gjort ett förslag.</div>
+
+    <div class="card">
+      <div class="card-title">Kolumnmappning</div>
+      <table class="mapping-table" id="mapping-table">
+        <thead><tr><th>xZero-kolumn</th><th>Kundens kolumn</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="step-nav">
+      <button class="btn-secondary" onclick="goStep(1)">← Tillbaka</button>
+      <button class="btn-primary" onclick="saveMapping()">
+        <span class="mini-spinner" id="spin-2"></span>
+        Spara mappning →
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 3: Assessment -->
+  <div class="step-panel" id="panel-3">
+    <div class="panel-title">Steg 3 – Dataset Assessment</div>
+    <div class="panel-sub">Systemet analyserar datakvalitet och ger en rekommendation.</div>
+
+    <div id="assess-loading" style="text-align:center;padding:3rem">
+      <div class="spinner-lg"></div>
+      <div style="color:var(--muted);font-size:0.85rem;margin-top:0.5rem">Analyserar dataset med AI…</div>
+    </div>
+
+    <div id="assess-result" style="display:none">
+      <div class="card">
+        <div class="card-title">Datakvalitet</div>
+        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.75rem">
+          <div style="font-size:2rem;font-weight:800;color:var(--accent)" id="quality-score">–</div>
+          <div style="flex:1">
+            <div class="quality-bar"><div class="quality-fill" id="quality-fill" style="background:var(--green)"></div></div>
+            <div style="font-size:0.72rem;color:var(--muted)">Kvalitetspoäng 0–1</div>
+          </div>
+        </div>
+        <ul class="issue-list" id="issues-list"></ul>
+      </div>
+      <div class="card">
+        <div class="card-title">AI-tolkning</div>
+        <div class="interpretation-box" id="interpretation"></div>
+      </div>
+      <div class="card" id="assess-stats-card">
+        <div class="card-title">Nyckeltal</div>
+        <div class="stat-grid" id="assess-stats"></div>
+      </div>
+    </div>
+
+    <div class="step-nav">
+      <button class="btn-secondary" onclick="goStep(2)">← Tillbaka</button>
+      <button class="btn-primary" onclick="goStep(4)" id="btn-3-next" disabled>
+        Nästa: Välj mål →
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 4: Target -->
+  <div class="step-panel" id="panel-4">
+    <div class="panel-title">Steg 4 – Prediction Target</div>
+    <div class="panel-sub">Välj vilken kolumn modellen ska prediktera. Välj en numerisk kolumn som representerar det beslut ni vill förbättra.</div>
+
+    <div class="card">
+      <div class="card-title">Numeriska kolumner</div>
+      <div class="target-grid" id="target-grid"></div>
+    </div>
+
+    <div class="step-nav">
+      <button class="btn-secondary" onclick="goStep(3)">← Tillbaka</button>
+      <button class="btn-primary" id="btn-4-next" onclick="saveTarget()" disabled>
+        <span class="mini-spinner" id="spin-4"></span>
+        Kör AutoML →
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 5: Training -->
+  <div class="step-panel" id="panel-5">
+    <div class="panel-title">Steg 5 – AutoML</div>
+    <div class="panel-sub">Tränar modeller och utvärderar prestanda mot historisk data.</div>
+
+    <div id="train-loading" class="training-status">
+      <div class="spinner-lg"></div>
+      <div style="font-size:0.95rem;font-weight:600;margin-bottom:0.3rem">Tränar modeller…</div>
+      <div style="font-size:0.82rem;color:var(--muted)">LightGBM · Naive Forecast · Walk-forward CV</div>
+    </div>
+
+    <div id="train-result" style="display:none">
+      <div class="card">
+        <div class="card-title">Leaderboard</div>
+        <div style="overflow-x:auto">
+          <table class="leaderboard" id="leaderboard"></table>
+        </div>
+      </div>
+      <div class="card" id="feat-imp-card" style="display:none">
+        <div class="card-title">Feature importance – <span id="feat-model-name"></span></div>
+        <div id="feat-imp-chart"></div>
+      </div>
+    </div>
+
+    <div class="step-nav">
+      <button class="btn-secondary" onclick="goStep(4)">← Tillbaka</button>
+      <button class="btn-primary" id="btn-5-next" onclick="goStep(6)" disabled>
+        Nästa: Historical Replay →
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 6: Replay -->
+  <div class="step-panel" id="panel-6">
+    <div class="panel-title">Steg 6 – Historical Replay</div>
+    <div class="panel-sub">Modellen predikterade historiska perioder. Så här hade det sett ut om ni kört modellen i produktion.</div>
+
+    <div class="card">
+      <div class="card-title">Prediktion vs verklighet (testperiod)</div>
+      <div class="chart-wrap" id="replay-chart"></div>
+    </div>
+
+    <div class="step-nav">
+      <button class="btn-secondary" onclick="goStep(5)">← Tillbaka</button>
+      <button class="btn-primary" onclick="goStep(7)">
+        Nästa: Simulering →
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 7: Simulation -->
+  <div class="step-panel" id="panel-7">
+    <div class="panel-title">Steg 7 – Business Simulation</div>
+    <div class="panel-sub">Välj en affärsregel och se vad som hade hänt om ni följt modellens prediktioner.</div>
+
+    <div class="card">
+      <div class="card-title">Välj simuleringsregel</div>
+      <div class="rule-grid" id="rule-grid"></div>
+    </div>
+
+    <div id="sim-result" style="display:none">
+      <div class="card">
+        <div class="card-title">Simulerat utfall vs verklighet</div>
+        <div class="chart-wrap" id="sim-chart"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Sammanfattning</div>
+        <div class="stat-grid" id="sim-stats"></div>
+      </div>
+    </div>
+
+    <div class="step-nav">
+      <button class="btn-secondary" onclick="goStep(6)">← Tillbaka</button>
+      <button class="btn-primary" id="btn-7-next" onclick="goStep(8)" disabled>
+        Nästa: ELIR →
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 8: ELIR -->
+  <div class="step-panel" id="panel-8">
+    <div class="panel-title">Steg 8 – ELIR</div>
+    <div class="panel-sub">Beräknar den uppskattade I-faktorn och genererar beslutsunderlag.</div>
+
+    <div id="elir-loading" style="text-align:center;padding:3rem">
+      <div class="spinner-lg"></div>
+      <div style="color:var(--muted);font-size:0.85rem;margin-top:0.5rem">Beräknar ELIR och genererar beslutsunderlag…</div>
+    </div>
+
+    <div id="elir-result" style="display:none">
+      <div class="elir-hero">
+        <div class="elir-i" id="elir-i">–</div>
+        <div class="elir-label">Uppskattad I-faktor</div>
+        <div class="elir-conf" id="elir-conf">–</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Nyckeltal</div>
+        <div class="stat-grid" id="elir-stats"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Beslutsunderlag (AI-genererat)</div>
+        <div class="narrative-box" id="elir-narrative"></div>
+      </div>
+      <div id="scan-saved-msg" style="display:none;font-size:0.78rem;color:var(--green);text-align:center;margin-top:0.5rem">
+        ✓ I-faktorn har sparats tillbaka till Opportunity Scan
+      </div>
+    </div>
+
+    <div class="step-nav">
+      <button class="btn-secondary" onclick="goStep(7)">← Tillbaka</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+const SID = new URLSearchParams(location.search).get("id");
+
+const STEPS = [
+  { n:1, label:"Dataset" },
+  { n:2, label:"Mappning" },
+  { n:3, label:"Assessment" },
+  { n:4, label:"Mål" },
+  { n:5, label:"AutoML" },
+  { n:6, label:"Replay" },
+  { n:7, label:"Simulering" },
+  { n:8, label:"ELIR" },
+];
+
+let session  = {};
+let currentStep = 1;
+let uploadedMeta = null;
+let selectedTarget = null;
+let selectedRule   = null;
+let replayData     = null;
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  if (!SID) { alert("Ingen session-ID"); return; }
+  try {
+    session = await fetch(`/api/datalab/${SID}`).then(r => r.json());
+    document.getElementById("lab-company").textContent =
+      session.company_name || (session.scan_id ? `Scan #${session.scan_id}` : "Ny session");
+    document.getElementById("topbar-status").textContent =
+      session.hypothesis ? `Hypotes: ${session.hypothesis}` : "";
+
+    // Restore state from saved session
+    const savedStep = session.step || 1;
+    renderStepper(savedStep);
+
+    if (session.dataset_meta) {
+      uploadedMeta = session.dataset_meta;
+      renderMeta(uploadedMeta);
+      document.getElementById("btn-1-next").disabled = false;
+    }
+    if (session.mapping) {
+      renderMappingTable(session.mapping, session.dataset_meta?.columns || []);
+    }
+    if (session.assessment) {
+      renderAssessment(session.assessment);
+    }
+    if (session.target_col) {
+      selectedTarget = session.target_col;
+    }
+    if (session.benchmark) {
+      replayData = session.benchmark;
+      renderLeaderboard(replayData);
+      renderReplayChart(replayData);
+    }
+    if (session.simulation) {
+      selectedRule = session.simulation.rule_key;
+      renderSimulation(session.simulation);
+    }
+    if (session.elir) {
+      renderElir(session.elir);
+    }
+
+    goStep(savedStep);
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+// ── Stepper ───────────────────────────────────────────────────────────────────
+function renderStepper(maxStep) {
+  const el = document.getElementById("stepper");
+  el.innerHTML = STEPS.map((s, i) => {
+    const cls = s.n < currentStep ? "done clickable"
+              : s.n === currentStep ? "active" : "";
+    return `
+      ${i > 0 ? '<span class="step-sep">›</span>' : ""}
+      <div class="step-item ${cls}" onclick="if(${s.n} < ${currentStep}) goStep(${s.n})">
+        <div class="step-num">${s.n < currentStep ? "✓" : s.n}</div>
+        ${s.label}
+      </div>`;
+  }).join("");
+}
+
+function goStep(n) {
+  currentStep = n;
+  document.querySelectorAll(".step-panel").forEach(p => p.classList.remove("active"));
+  document.getElementById(`panel-${n}`)?.classList.add("active");
+  renderStepper(n);
+  window.scrollTo(0,0);
+
+  // Trigger async operations on step entry
+  if (n === 3 && !document.getElementById("assess-result").style.display.includes("block")) {
+    runAssessment();
+  }
+  if (n === 5 && !document.getElementById("train-result").style.display.includes("block")) {
+    runTraining();
+  }
+  if (n === 8 && !document.getElementById("elir-result").style.display.includes("block")) {
+    runElir();
+  }
+}
+
+// ── Step 1: Upload ────────────────────────────────────────────────────────────
+function handleFileDrop(e) {
+  e.preventDefault();
+  document.getElementById("upload-zone").classList.remove("drag");
+  const file = e.dataTransfer.files[0];
+  if (file) uploadFile(file);
+}
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) uploadFile(file);
+}
+
+async function uploadFile(file) {
+  document.getElementById("upload-zone").style.display = "none";
+  document.getElementById("upload-progress").style.display = "block";
+
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const res  = await fetch(`/api/datalab/${SID}/upload`, { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Uppladdning misslyckades");
+
+    uploadedMeta = data.meta;
+    session.mapping = data.mapping;
+    session.dataset_meta = data.meta;
+
+    document.getElementById("upload-progress").style.display = "none";
+    renderMeta(data.meta);
+    renderMappingTable(data.mapping, data.meta.columns);
+    document.getElementById("btn-1-next").disabled = false;
+  } catch(e) {
+    document.getElementById("upload-progress").style.display = "none";
+    document.getElementById("upload-zone").style.display = "block";
+    alert("Fel: " + e.message);
+  }
+}
+
+function renderMeta(meta) {
+  document.getElementById("upload-result").style.display = "block";
+  const sg = document.getElementById("meta-stats");
+  sg.innerHTML = [
+    ["Rader",     meta.rows?.toLocaleString()],
+    ["Kolumner",  meta.cols],
+    ["Från",      meta.period_start || "–"],
+    ["Till",      meta.period_end   || "–"],
+    ["Dagar",     meta.period_days  || "–"],
+  ].map(([l,v]) => `<div class="stat-box">
+    <div class="stat-label">${l}</div>
+    <div class="stat-value">${v ?? "–"}</div>
+  </div>`).join("");
+
+  // Sample table
+  const cols = meta.columns || [];
+  const rows = meta.sample_rows || [];
+  document.getElementById("data-preview").innerHTML = `
+    <table>
+      <thead><tr>${cols.map(c => `<th>${c}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map(r => `<tr>${r.map(v => `<td>${v}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table>`;
+}
+
+// ── Step 2: Mapping ───────────────────────────────────────────────────────────
+const GENERIC_LABELS = {
+  date:"Datum", product_id:"Produkt / SKU", customer_id:"Kund",
+  qty_sold:"Såld mängd", qty_produced:"Producerad mängd", qty_forecast:"Forecast",
+  qty_stock:"Lager", qty_waste:"Svinn", price:"Pris", cost:"Kostnad", revenue:"Omsättning"
+};
+
+function renderMappingTable(mapping, columns) {
+  const tbody = document.querySelector("#mapping-table tbody");
+  tbody.innerHTML = Object.entries(GENERIC_LABELS).map(([key, label]) => {
+    const opts = `<option value="">– Ej mappad –</option>` +
+      columns.map(c => `<option value="${c}" ${mapping[key]===c?"selected":""}>${c}</option>`).join("");
+    return `<tr>
+      <td><strong>${label}</strong></td>
+      <td><select data-key="${key}">${opts}</select></td>
+    </tr>`;
+  }).join("");
+}
+
+async function saveMapping() {
+  const spin = document.getElementById("spin-2");
+  spin.style.display = "inline-block";
+  const mapping = {};
+  document.querySelectorAll("#mapping-table select").forEach(sel => {
+    mapping[sel.dataset.key] = sel.value || null;
+  });
+  await fetch(`/api/datalab/${SID}/mapping`, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({mapping})
+  });
+  session.mapping = mapping;
+  spin.style.display = "none";
+  goStep(3);
+}
+
+// ── Step 3: Assessment ────────────────────────────────────────────────────────
+async function runAssessment() {
+  document.getElementById("assess-loading").style.display = "block";
+  document.getElementById("assess-result").style.display  = "none";
+  try {
+    const data = await fetch(`/api/datalab/${SID}/assess`, {method:"POST"}).then(r => r.json());
+    renderAssessment(data);
+  } catch(e) {
+    document.getElementById("assess-loading").innerHTML =
+      `<div style="color:var(--red)">Fel: ${e.message}</div>`;
+  }
+}
+
+function renderAssessment(data) {
+  document.getElementById("assess-loading").style.display = "none";
+  document.getElementById("assess-result").style.display  = "block";
+
+  const score = data.quality_score ?? 0;
+  document.getElementById("quality-score").textContent = score.toFixed(2);
+  document.getElementById("quality-fill").style.width = (score*100) + "%";
+  document.getElementById("quality-fill").style.background =
+    score > 0.7 ? "var(--green)" : score > 0.4 ? "var(--amber)" : "var(--red)";
+
+  const ul = document.getElementById("issues-list");
+  ul.innerHTML = (data.issues||[]).length
+    ? data.issues.map(i => `<li>${i}</li>`).join("")
+    : `<li style="color:var(--green);list-style:none">✓ Inga allvarliga problem hittades</li>`;
+
+  document.getElementById("interpretation").textContent = data.interpretation || "–";
+
+  // Stats
+  const sg = document.getElementById("assess-stats");
+  const stats = data.stats || {};
+  const items = [];
+  if (stats.unique_dates)           items.push(["Unika datum",  stats.unique_dates]);
+  if (stats.median_interval_days)   items.push(["Intervall (dagar)", stats.median_interval_days]);
+  if (stats.date_regularity != null)items.push(["Regularitet",  stats.date_regularity]);
+  if (stats.n_products)             items.push(["Produkter",    stats.n_products]);
+  Object.entries(stats).forEach(([k, v]) => {
+    if (typeof v === "object" && v && "mean" in v)
+      items.push([GENERIC_LABELS[k] || k, v.mean]);
+  });
+  sg.innerHTML = items.map(([l,v]) => `<div class="stat-box">
+    <div class="stat-label">${l}</div>
+    <div class="stat-value">${typeof v === "number" ? v.toLocaleString("sv-SE") : v}</div>
+  </div>`).join("");
+
+  document.getElementById("btn-3-next").disabled = false;
+  session.assessment = data;
+}
+
+// ── Step 4: Target ────────────────────────────────────────────────────────────
+function renderTargetGrid() {
+  const cols   = session.dataset_meta?.columns || [];
+  const grid   = document.getElementById("target-grid");
+  const mapping = session.mapping || {};
+
+  // Find numeric columns (mapped or sample)
+  const numericCols = [];
+  const mappedVals  = Object.values(mapping).filter(Boolean);
+  mappedVals.forEach(c => {
+    if (c && !["date","product_id","customer_id"].includes(
+      Object.keys(mapping).find(k => mapping[k] === c) || "")) {
+      numericCols.push(c);
+    }
+  });
+  // Add remaining columns
+  cols.forEach(c => { if (!numericCols.includes(c)) numericCols.push(c); });
+
+  grid.innerHTML = numericCols.slice(0,20).map(col => `
+    <button class="target-btn ${col === selectedTarget ? 'selected' : ''}"
+            onclick="selectTarget('${col.replace(/'/g,"\\'")}')">
+      ${col}
+    </button>`).join("");
+}
+
+function selectTarget(col) {
+  selectedTarget = col;
+  document.querySelectorAll(".target-btn").forEach(b => b.classList.remove("selected"));
+  event.currentTarget.classList.add("selected");
+  document.getElementById("btn-4-next").disabled = false;
+}
+
+async function saveTarget() {
+  if (!selectedTarget) return;
+  document.getElementById("spin-4").style.display = "inline-block";
+  document.getElementById("btn-4-next").disabled = true;
+  await fetch(`/api/datalab/${SID}/target`, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({target_col: selectedTarget})
+  });
+  document.getElementById("spin-4").style.display = "none";
+  goStep(5);
+}
+
+// ── Step 5: Training ──────────────────────────────────────────────────────────
+async function runTraining() {
+  document.getElementById("train-loading").style.display = "block";
+  document.getElementById("train-result").style.display  = "none";
+  try {
+    const data = await fetch(`/api/datalab/${SID}/train`, {method:"POST"}).then(r => r.json());
+    if (data.detail) throw new Error(data.detail);
+    replayData = data;
+    renderLeaderboard(data);
+    renderReplayChart(data);
+    document.getElementById("btn-5-next").disabled = false;
+  } catch(e) {
+    document.getElementById("train-loading").innerHTML =
+      `<div style="color:var(--red);text-align:center;padding:2rem">Fel: ${e.message}</div>`;
+  }
+}
+
+function renderLeaderboard(data) {
+  document.getElementById("train-loading").style.display = "none";
+  document.getElementById("train-result").style.display  = "block";
+
+  const models = data.models || {};
+  const best   = data.best_model;
+  const rows   = Object.entries(models)
+    .filter(([,v]) => v.metrics)
+    .sort((a,b) => a[1].metrics.mae - b[1].metrics.mae);
+
+  const table = document.getElementById("leaderboard");
+  table.innerHTML = `
+    <thead><tr>
+      <th>Modell</th><th>MAE</th><th>RMSE</th><th>MAPE %</th><th>R²</th><th>Bias</th><th>Träningstid</th>
+    </tr></thead>
+    <tbody>${rows.map(([name, v]) => {
+      const m = v.metrics;
+      return `<tr class="${name===best?'best':''}">
+        <td>${name}${name===best?' ★':''}</td>
+        <td>${m.mae}</td><td>${m.rmse}</td>
+        <td>${m.mape ?? "–"}</td><td>${m.r2}</td>
+        <td>${m.bias}</td><td>${m.training_time}s</td>
+      </tr>`;
+    }).join("")}</tbody>`;
+
+  // Feature importance
+  if (best && models[best]?.metrics?.feature_importance) {
+    const fi = models[best].metrics.feature_importance;
+    if (Object.keys(fi).length > 0) {
+      document.getElementById("feat-imp-card").style.display = "block";
+      document.getElementById("feat-model-name").textContent = best;
+      const sorted = Object.entries(fi).sort((a,b) => b[1]-a[1]).slice(0,10);
+      document.getElementById("feat-imp-chart").innerHTML = sorted.map(([f,v]) => `
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem">
+          <div style="font-size:0.75rem;width:130px;text-align:right;color:var(--muted);flex-shrink:0">${f}</div>
+          <div style="flex:1;height:10px;background:var(--border);border-radius:5px;overflow:hidden">
+            <div style="height:100%;width:${v}%;background:var(--accent);border-radius:5px"></div>
+          </div>
+          <div style="font-size:0.72rem;color:var(--muted);width:36px">${v}%</div>
+        </div>`).join("");
+    }
+  }
+}
+
+// ── Step 6: Replay chart ──────────────────────────────────────────────────────
+function renderReplayChart(data) {
+  const best = data.best_model;
+  if (!best || !data.models[best]?.actual) return;
+  const m = data.models[best];
+  renderLineChart("replay-chart", m.dates, [
+    {label:"Verkligt", values:m.actual,    color:"#0ea5e9"},
+    {label:"Prediktion", values:m.predicted, color:"#f97316", dash:true},
+  ]);
+}
+
+function renderLineChart(containerId, dates, series) {
+  const W = 760, H = 220, PL = 55, PR = 20, PT = 20, PB = 40;
+  const cw = W - PL - PR, ch = H - PT - PB;
+  const allVals = series.flatMap(s => s.values).filter(v => v != null);
+  const minV = Math.min(...allVals), maxV = Math.max(...allVals);
+  const range = maxV - minV || 1;
+  const n = series[0].values.length;
+
+  const x = i => PL + (i / (n - 1)) * cw;
+  const y = v => PT + ch - ((v - minV) / range) * ch;
+
+  const gridLines = 4;
+  let gridSvg = "";
+  for (let i = 0; i <= gridLines; i++) {
+    const yy = PT + (i / gridLines) * ch;
+    const val = (maxV - (i / gridLines) * range).toFixed(1);
+    gridSvg += `<line x1="${PL}" y1="${yy}" x2="${PL+cw}" y2="${yy}" stroke="#e2e8f0" stroke-width="1"/>
+    <text x="${PL-6}" y="${yy+4}" text-anchor="end" font-size="10" fill="#94a3b8">${val}</text>`;
+  }
+
+  // X labels (every ~10 points)
+  let xLabels = "";
+  const step = Math.max(1, Math.floor(n / 8));
+  for (let i = 0; i < n; i += step) {
+    if (dates[i]) {
+      xLabels += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle" font-size="9" fill="#94a3b8">${dates[i].slice(5)}</text>`;
+    }
+  }
+
+  const paths = series.map(s => {
+    const pts = s.values.map((v,i) => `${x(i)},${y(v)}`).join(" ");
+    return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2"
+      ${s.dash ? 'stroke-dasharray="4 3"' : ''} stroke-linejoin="round"/>`;
+  }).join("");
+
+  const legend = series.map((s, i) =>
+    `<rect x="${PL + i*120}" y="${H-10}" width="12" height="3" fill="${s.color}" rx="1"/>
+     <text x="${PL + i*120 + 16}" y="${H-5}" font-size="10" fill="#64748b">${s.label}</text>`
+  ).join("");
+
+  document.getElementById(containerId).innerHTML = `
+    <svg viewBox="0 0 ${W} ${H+10}" style="width:100%;min-width:320px">
+      ${gridSvg}
+      <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+ch}" stroke="#e2e8f0"/>
+      ${paths}
+      ${xLabels}
+      ${legend}
+    </svg>`;
+}
+
+// ── Step 7: Simulation ────────────────────────────────────────────────────────
+const RULE_LABELS = {
+  exact:      "Producera exakt forecast",
+  margin_10:  "Forecast + 10% säkerhetsmarginal",
+  margin_20:  "Forecast + 20% säkerhetsmarginal",
+  min_waste:  "Minimera svinn (0.9× forecast)",
+  max_fill:   "Maximera servicegrad (1.25× forecast)",
+};
+
+function renderRuleGrid() {
+  document.getElementById("rule-grid").innerHTML = Object.entries(RULE_LABELS).map(([k,v]) =>
+    `<button class="rule-btn ${k===selectedRule?'selected':''}"
+             onclick="runSimulation('${k}')">${v}</button>`
+  ).join("");
+}
+
+async function runSimulation(ruleKey) {
+  selectedRule = ruleKey;
+  renderRuleGrid();
+  try {
+    const data = await fetch(`/api/datalab/${SID}/simulate`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({rule: ruleKey})
+    }).then(r => r.json());
+    renderSimulation(data);
+    document.getElementById("btn-7-next").disabled = false;
+  } catch(e) {
+    alert("Simulering misslyckades: " + e.message);
+  }
+}
+
+function renderSimulation(data) {
+  document.getElementById("sim-result").style.display = "block";
+  renderLineChart("sim-chart", data.dates, [
+    {label:"Verkligt",   values:data.actual,    color:"#0ea5e9"},
+    {label:"Simulerat",  values:data.simulated, color:"#8b5cf6"},
+  ]);
+
+  const actual    = data.actual.reduce((a,v) => a+v, 0);
+  const simulated = data.simulated.reduce((a,v) => a+v, 0);
+  const diff      = simulated - actual;
+  const diffPct   = actual ? ((diff / actual) * 100).toFixed(1) : "–";
+
+  document.getElementById("sim-stats").innerHTML = [
+    ["Totalt verkligt",  actual.toFixed(1)],
+    ["Totalt simulerat", simulated.toFixed(1)],
+    ["Avvikelse",        `${diff >= 0 ? "+" : ""}${diff.toFixed(1)}`],
+    ["Avvikelse %",      `${diffPct}%`],
+  ].map(([l,v]) => `<div class="stat-box">
+    <div class="stat-label">${l}</div>
+    <div class="stat-value">${v}</div>
+  </div>`).join("");
+}
+
+// ── Step 8: ELIR ──────────────────────────────────────────────────────────────
+async function runElir() {
+  document.getElementById("elir-loading").style.display = "block";
+  document.getElementById("elir-result").style.display  = "none";
+  try {
+    const data = await fetch(`/api/datalab/${SID}/elir`, {method:"POST"}).then(r => r.json());
+    renderElir(data);
+  } catch(e) {
+    document.getElementById("elir-loading").innerHTML =
+      `<div style="color:var(--red);text-align:center;padding:2rem">Fel: ${e.message}</div>`;
+  }
+}
+
+function renderElir(data) {
+  document.getElementById("elir-loading").style.display = "none";
+  document.getElementById("elir-result").style.display  = "block";
+
+  document.getElementById("elir-i").textContent    = (data.i_pct ?? "–") + "%";
+  const confEl = document.getElementById("elir-conf");
+  confEl.textContent  = "Konfidens: " + (data.confidence || "–");
+  confEl.className    = `elir-conf ${data.confidence || ""}`;
+  document.getElementById("elir-narrative").textContent = data.narrative || "–";
+
+  document.getElementById("elir-stats").innerHTML = [
+    ["Noggrannhetsvinst", (data.accuracy_gain ?? "–") + "%"],
+    ["MAE baseline",      data.mae_baseline ?? "–"],
+    ["MAE modell",        data.mae_model    ?? "–"],
+    ["Volymavvikelse",    (data.volume_diff_pct ?? "–") + "%"],
+  ].map(([l,v]) => `<div class="stat-box">
+    <div class="stat-label">${l}</div>
+    <div class="stat-value">${v}</div>
+  </div>`).join("");
+
+  if (data.saved_to_scan) {
+    document.getElementById("scan-saved-msg").style.display = "block";
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+  init().then(() => {
+    if (currentStep === 4) renderTargetGrid();
+    if (currentStep === 7) renderRuleGrid();
+  });
+});
+
+// Patch goStep to trigger renders
+const _goStep = goStep;
+function goStep(n) {
+  _goStep(n);
+  if (n === 4) renderTargetGrid();
+  if (n === 7) renderRuleGrid();
+}
+</script>
+</body>
+</html>

@@ -178,6 +178,26 @@ def init_db():
         con.execute("ALTER TABLE crm_leads ADD COLUMN sort_order INTEGER DEFAULT 0")
     except Exception:
         pass
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS datalab_sessions (
+            id           TEXT PRIMARY KEY,
+            scan_id      INTEGER,
+            hypothesis   TEXT,
+            step         INTEGER DEFAULT 1,
+            status       TEXT DEFAULT 'active',
+            company_name TEXT,
+            dataset_meta TEXT,
+            mapping      TEXT,
+            assessment   TEXT,
+            target_col   TEXT,
+            benchmark    TEXT,
+            replay       TEXT,
+            simulation   TEXT,
+            elir         TEXT,
+            created_at   TEXT NOT NULL,
+            updated_at   TEXT NOT NULL
+        )
+    """)
     con.commit()
     con.close()
 
@@ -461,6 +481,9 @@ init_db()
 
 from publ import router as publ_router
 app.include_router(publ_router)
+
+from datalab import router as datalab_router
+app.include_router(datalab_router)
 
 app.add_middleware(
     CORSMiddleware,
