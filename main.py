@@ -1977,6 +1977,44 @@ async def get_workshop_analysis(workshop_id: str):
     return {"analysis_markdown": row[0], "created_at": row[1]}
 
 
+@app.get("/api/scans/{scan_id}/hypotheses")
+async def get_scan_hypotheses_for_datalab(scan_id: int):
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    scan_row = con.execute("SELECT workshop_hypotheses FROM scans WHERE id=?", (scan_id,)).fetchone()
+    if not scan_row:
+        con.close()
+        raise HTTPException(status_code=404, detail="Scan hittades inte")
+    ws_row = con.execute(
+        "SELECT session_json FROM workshop_sessions WHERE scan_id=? ORDER BY created_at DESC LIMIT 1",
+        (scan_id,)
+    ).fetchone()
+    con.close()
+
+    hypotheses = []
+    if ws_row:
+        try:
+            hypotheses = json.loads(ws_row["session_json"]).get("hypotheses", [])
+        except Exception:
+            pass
+    if not hypotheses and scan_row["workshop_hypotheses"]:
+        try:
+            hypotheses = json.loads(scan_row["workshop_hypotheses"])
+        except Exception:
+            pass
+
+    return [
+        {
+            "id":                h.get("hypothesis_id", ""),
+            "title":             h.get("title", ""),
+            "data_requirements": h.get("data_requirements", []),
+            "prediction_target": (h.get("model_archetype") or {}).get("primary_prediction_target", ""),
+            "use_case":          (h.get("candidate_use_case") or {}).get("name", ""),
+        }
+        for h in hypotheses if isinstance(h, dict)
+    ]
+
+
 @app.get("/api/scans/{scan_id}/analysis")
 async def get_scan_analysis(scan_id: str):
     con = sqlite3.connect(DB_PATH)
