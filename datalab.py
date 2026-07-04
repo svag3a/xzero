@@ -196,9 +196,10 @@ Opportunity Scan: {scan_info.get('company_name','Okänt bolag')}
 Hypotes: {scan_info.get('hypothesis','')}
 
 Skriv ett beslutsunderlag på 4-6 meningar på svenska:
-1. Vad bevisade Data Lab?
-2. Vad är den uppskattade I-faktorn och vad den innebär ekonomiskt?
-3. Rekommendation: fortsätt till implementation / behöver mer data / potentialen för liten?
+1. Vad bevisade Data Lab för denna specifika hypotes?
+2. Vad är den uppskattade I-faktorn för denna hypotes och vad den innebär ekonomiskt?
+3. Betona att I-faktorn på {elir['i_pct']}% gäller enbart denna hypotes — bolagets totala I-faktor (summan av alla validerade hypoteser) kan bli betydligt högre när övriga hypoteser också testas och valideras i Data Lab.
+4. Rekommendation: fortsätt till implementation / behöver mer data / potentialen för liten?
 Direkt, konkret ton. Inga rubriker."""
 
     try:
