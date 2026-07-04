@@ -1980,13 +1980,25 @@ async def get_workshop_analysis(workshop_id: str):
 def _extract_hypotheses_regex(text: str) -> list:
     """Extract hypotheses from report markdown using regex — no Claude needed."""
     results = []
-    # Format 1: "Hypotes: ..." lines (standard opportunity scan format)
-    matches = re.findall(r'Hypotes(?:er)?:\s*(.+?)(?=\nHypotes|\n##|\Z)', text, re.DOTALL)
+    # Format 1a: "Hypotes: ..." or "Hypotes 1: ..." or "Hypotesen: ..." lines
+    matches = re.findall(
+        r'Hypotes(?:er|en)?\s*\d*\s*:\s*(.+?)(?=\nHypotes|\n###|\n##|\Z)',
+        text, re.DOTALL | re.IGNORECASE
+    )
     for i, m in enumerate(matches, 1):
         title = re.sub(r'\s+', ' ', m.strip())[:300]
         if title:
             results.append({"hypothesis_id": f"H{i}", "title": title,
                             "data_requirements": [], "model_archetype": {}, "candidate_use_case": {}})
+    if results:
+        return results
+    # Format 1b: "### Hypotes N – Title" headings
+    for m in re.finditer(
+        r'###?\s+Hypotes(?:er|en)?\s*(\d+)\s*[:\s–\-]+\s*(.+)',
+        text, re.IGNORECASE
+    ):
+        results.append({"hypothesis_id": f"H{m.group(1)}", "title": m.group(2).strip()[:300],
+                        "data_requirements": [], "model_archetype": {}, "candidate_use_case": {}})
     if results:
         return results
     # Format 2: "### H1 – Title" or "**H1:** Title" headings
@@ -2045,13 +2057,21 @@ async def debug_scan_hypotheses(scan_id: int):
             ws_hyp_count = len(json.loads(ws_row["session_json"]).get("hypotheses", []))
         except Exception:
             pass
+    report_md = scan_row["report_markdown"] or ""
+    regex_hits = _extract_hypotheses_regex(report_md)
+    # Show the 500-char snippet around first "Hypotes" occurrence
+    idx = report_md.lower().find("hypotes")
+    snippet = report_md[max(0,idx-20):idx+500].replace("\n","↵").replace("\r","⏎") if idx >= 0 else ""
     return {
         "scan_workshop_hypotheses_null": scan_row["workshop_hypotheses"] is None,
         "workshop_session_exists":       ws_row is not None,
         "workshop_session_hyp_count":    ws_hyp_count,
         "analysis_markdown_len":         len(ws_row["analysis_markdown"] or "") if ws_row else 0,
-        "report_markdown_len":           len(scan_row["report_markdown"] or ""),
-        "report_has_hypotes_keyword":    "hypotes" in (scan_row["report_markdown"] or "").lower(),
+        "report_markdown_len":           len(report_md),
+        "report_has_hypotes_keyword":    "hypotes" in report_md.lower(),
+        "regex_hit_count":               len(regex_hits),
+        "regex_first_title":             regex_hits[0]["title"][:100] if regex_hits else None,
+        "report_snippet_around_hypotes": snippet,
     }
 
 
