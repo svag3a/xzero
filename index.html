@@ -2893,12 +2893,26 @@
 
     if (!_dlHypotheses[scanId]) {
       const res = await fetch(`/api/scans/${scanId}/hypotheses`).catch(() => null);
-      _dlHypotheses[scanId] = (res && res.ok) ? await res.json().catch(() => []) : [];
+      if (!res) {
+        selH.innerHTML = `<option value="">Fel: nätverksfel för scan ${scanId}</option>`;
+        return;
+      }
+      const body = await res.text().catch(() => "");
+      if (!res.ok) {
+        selH.innerHTML = `<option value="">Fel ${res.status}: ${body.slice(0, 120)}</option>`;
+        return;
+      }
+      try {
+        _dlHypotheses[scanId] = JSON.parse(body);
+      } catch {
+        selH.innerHTML = `<option value="">Ogiltigt JSON: ${body.slice(0, 120)}</option>`;
+        return;
+      }
     }
     const hyps = _dlHypotheses[scanId];
 
     if (!hyps.length) {
-      selH.innerHTML = '<option value="">– Inga hypoteser (scan saknar workshop-analys) –</option>';
+      selH.innerHTML = `<option value="">Inga hypoteser för scan ${scanId} — kör workshop-analys först</option>`;
       return;
     }
 
