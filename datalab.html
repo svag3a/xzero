@@ -200,10 +200,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 /* ── Data table preview ── */
-.data-preview { overflow-x: auto; }
-.data-preview table { border-collapse: collapse; font-size: 0.78rem; width: 100%; }
-.data-preview th, .data-preview td { padding: 0.35rem 0.6rem; border: 1px solid var(--border); white-space: nowrap; }
-.data-preview th { background: var(--bg); font-weight: 600; }
+.data-preview { overflow-x: auto; overflow-y: auto; max-height: 260px; border: 1px solid var(--border); border-radius: 6px; }
+.data-preview table { border-collapse: collapse; font-size: 0.78rem; min-width: 100%; }
+.data-preview th, .data-preview td { padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); white-space: nowrap; }
+.data-preview th { background: var(--bg); font-weight: 600; position: sticky; top: 0; z-index: 1; }
+.data-preview tr:last-child td { border-bottom: none; }
 </style>
 </head>
 <body>
@@ -533,13 +534,19 @@ async function init() {
 // ── Stepper ───────────────────────────────────────────────────────────────────
 function renderStepper(maxStep) {
   const el = document.getElementById("stepper");
+  const maxReached = Math.max(currentStep, session.step || 1);
   el.innerHTML = STEPS.map((s, i) => {
-    const cls = s.n < currentStep ? "done clickable"
-              : s.n === currentStep ? "active" : "";
+    const done    = s.n < currentStep;
+    const active  = s.n === currentStep;
+    const reachable = s.n !== currentStep && s.n <= maxReached;
+    const cls = done ? "done clickable"
+              : active ? "active"
+              : reachable ? "clickable" : "";
     return `
       ${i > 0 ? '<span class="step-sep">›</span>' : ""}
-      <div class="step-item ${cls}" onclick="if(${s.n} < ${currentStep}) goStep(${s.n})">
-        <div class="step-num">${s.n < currentStep ? "✓" : s.n}</div>
+      <div class="step-item ${cls}" style="${reachable ? 'cursor:pointer;opacity:0.7' : ''}"
+           onclick="if(${s.n} !== ${currentStep} && ${s.n} <= ${maxReached}) goStep(${s.n})">
+        <div class="step-num">${done ? "✓" : s.n}</div>
         ${s.label}
       </div>`;
   }).join("");

@@ -86,11 +86,30 @@ def compute_dataset_meta(df: pd.DataFrame, filename: str) -> dict:
         "missing_pct": {c: round(float(df[c].isna().mean() * 100), 1) for c in df.columns},
         "sample_rows": df.head(5).fillna("").astype(str).values.tolist(),
     }
+    _DATE_HINTS = ["date","datum","dag","day","week","vecka","month","månad",
+                   "period","time","tid","year","år","quarter","kvartal"]
+    # First pass: name-based detection
+    date_col_found = False
     for col in df.columns:
-        if any(h in col.lower() for h in ["date","datum","dag","day","week","period","time"]):
+        if any(h in col.lower() for h in _DATE_HINTS):
             try:
                 dates = pd.to_datetime(df[col], errors="coerce").dropna()
                 if len(dates) > 10:
+                    meta["period_start"] = str(dates.min().date())
+                    meta["period_end"]   = str(dates.max().date())
+                    meta["period_days"]  = int((dates.max() - dates.min()).days)
+                    date_col_found = True
+                    break
+            except Exception:
+                pass
+    # Second pass: value-based detection (try every column if no name match)
+    if not date_col_found:
+        for col in df.columns:
+            try:
+                parsed = pd.to_datetime(df[col], errors="coerce")
+                hit_rate = parsed.notna().mean()
+                if hit_rate > 0.8 and parsed.notna().sum() > 10:
+                    dates = parsed.dropna()
                     meta["period_start"] = str(dates.min().date())
                     meta["period_end"]   = str(dates.max().date())
                     meta["period_days"]  = int((dates.max() - dates.min()).days)
