@@ -174,7 +174,9 @@ Direkt, konkret ton. Inga rubriker."""
 
 @router.get("/datalab/page", response_class=HTMLResponse)
 async def datalab_page():
-    return (Path(__file__).parent / "datalab.html").read_text(encoding="utf-8")
+    from fastapi.responses import HTMLResponse as _HR
+    content = (Path(__file__).parent / "datalab.html").read_text(encoding="utf-8")
+    return _HR(content, headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
 
 
 @router.get("/api/datalab")

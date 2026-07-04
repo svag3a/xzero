@@ -496,7 +496,7 @@ async function init() {
 
     // Restore state from saved session
     const savedStep = session.step || 1;
-    renderStepper(savedStep);
+    renderStepper();
 
     if (session.dataset_meta) {
       uploadedMeta = session.dataset_meta;
@@ -532,23 +532,24 @@ async function init() {
 }
 
 // ── Stepper ───────────────────────────────────────────────────────────────────
-function renderStepper(maxStep) {
+function stepClick(n) {
+  const maxReached = Math.max(currentStep, session.step || 1);
+  if (n !== currentStep && n <= maxReached) goStep(n);
+}
+
+function renderStepper() {
   const el = document.getElementById("stepper");
   const maxReached = Math.max(currentStep, session.step || 1);
   el.innerHTML = STEPS.map((s, i) => {
-    const done    = s.n < currentStep;
-    const active  = s.n === currentStep;
+    const done      = s.n < currentStep;
+    const active    = s.n === currentStep;
     const reachable = s.n !== currentStep && s.n <= maxReached;
-    const cls = done ? "done clickable"
-              : active ? "active"
-              : reachable ? "clickable" : "";
-    return `
-      ${i > 0 ? '<span class="step-sep">›</span>' : ""}
-      <div class="step-item ${cls}" style="${reachable ? 'cursor:pointer;opacity:0.7' : ''}"
-           onclick="if(${s.n} !== ${currentStep} && ${s.n} <= ${maxReached}) goStep(${s.n})">
-        <div class="step-num">${done ? "✓" : s.n}</div>
-        ${s.label}
-      </div>`;
+    const cls = done ? "done clickable" : active ? "active" : reachable ? "clickable" : "";
+    const style = reachable ? " style='cursor:pointer;opacity:0.75'" : "";
+    return (i > 0 ? '<span class="step-sep">›</span>' : "") +
+      `<div class="step-item ${cls}"${style} onclick="stepClick(${s.n})">` +
+        `<div class="step-num">${done ? "✓" : s.n}</div>${s.label}` +
+      `</div>`;
   }).join("");
 }
 
@@ -556,7 +557,7 @@ function goStep(n) {
   currentStep = n;
   document.querySelectorAll(".step-panel").forEach(p => p.classList.remove("active"));
   document.getElementById(`panel-${n}`)?.classList.add("active");
-  renderStepper(n);
+  renderStepper();
   window.scrollTo(0,0);
 
   // Trigger async operations on step entry
@@ -586,10 +587,7 @@ function handleFileSelect(e) {
 
 async function uploadFiles(files) {
   document.getElementById("upload-zone").style.display = "none";
-  const prog = document.getElementById("upload-progress");
-  prog.style.display = "block";
-  prog.querySelector("div").textContent =
-    files.length > 1 ? `Analyserar ${files.length} filer…` : "Analyserar fil…";
+  document.getElementById("upload-progress").style.display = "block";
 
   const fd = new FormData();
   for (const f of files) fd.append("files", f);
@@ -598,19 +596,20 @@ async function uploadFiles(files) {
     const res = await fetch(`/api/datalab/${SID}/upload`, { method: "POST", body: fd });
     let data;
     try { data = await res.json(); }
-    catch { throw new Error(`Serverfel (${res.status}) — kontrollera att filen är giltig`); }
+    catch { throw new Error("Serverfel (" + res.status + ") — kontrollera att filen är giltig"); }
     if (!res.ok) throw new Error(data.detail || "Uppladdning misslyckades");
 
-    uploadedMeta = data.meta;
-    session.mapping = data.mapping;
+    uploadedMeta        = data.meta;
+    session.mapping     = data.mapping || {};
     session.dataset_meta = data.meta;
+    session.step        = Math.max(session.step || 1, 2);
 
-    prog.style.display = "none";
+    document.getElementById("upload-progress").style.display = "none";
     renderMeta(data.meta);
-    renderMappingTable(data.mapping, data.meta.columns);
+    renderMappingTable(data.mapping || {}, (data.meta || {}).columns || []);
     document.getElementById("btn-1-next").disabled = false;
   } catch(e) {
-    prog.style.display = "none";
+    document.getElementById("upload-progress").style.display = "none";
     document.getElementById("upload-zone").style.display = "block";
     alert("Fel: " + e.message);
   }
