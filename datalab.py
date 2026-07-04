@@ -240,9 +240,9 @@ async def upload_dataset(sid: str, files: List[UploadFile] = File(...)):
     except Exception as e:
         raise HTTPException(400, f"Kunde inte slå ihop filer (kontrollera att kolumnerna stämmer): {e}")
 
-    # save as parquet
-    path = _session_path(sid) / "data.parquet"
-    df.to_parquet(str(path), index=False)
+    # save as CSV
+    path = _session_path(sid) / "data.csv"
+    df.to_csv(str(path), index=False)
 
     filename = files[0].filename if len(files) == 1 else f"{len(files)} filer"
     meta = compute_dataset_meta(df, filename)
@@ -265,12 +265,12 @@ async def save_mapping(sid: str, body: dict):
 @router.post("/api/datalab/{sid}/assess")
 async def assess_dataset(sid: str):
     sess = _get_session(sid)
-    path = _session_path(sid) / "data.parquet"
+    path = _session_path(sid) / "data.csv"
     if not path.exists():
         raise HTTPException(400, "Dataset saknas")
 
     import pandas as pd
-    df = pd.read_parquet(str(path))
+    df = pd.read_csv(str(path))
     mapping = sess.get("mapping") or {}
 
     assessment = run_assessment(df, mapping)
@@ -296,7 +296,7 @@ async def train_models(sid: str):
     sess     = _get_session(sid)
     target   = sess.get("target_col", "")
     mapping  = sess.get("mapping") or {}
-    path     = _session_path(sid) / "data.parquet"
+    path     = _session_path(sid) / "data.csv"
 
     if not target:
         raise HTTPException(400, "target_col saknas")
@@ -304,7 +304,7 @@ async def train_models(sid: str):
         raise HTTPException(400, "Dataset saknas")
 
     import pandas as pd
-    df = pd.read_parquet(str(path))
+    df = pd.read_csv(str(path))
 
     def _run():
         X, y, dates = engineer_features(df, mapping, target)
