@@ -102,14 +102,20 @@ def compute_dataset_meta(df: pd.DataFrame, filename: str) -> dict:
                     break
             except Exception:
                 pass
-    # Second pass: value-based detection (try every column if no name match)
+    # Second pass: value-based detection — skip numeric columns (they parse as epoch ns)
     if not date_col_found:
         for col in df.columns:
+            if df[col].dtype.kind in ("i", "u", "f"):  # int / uint / float → skip
+                continue
             try:
                 parsed = pd.to_datetime(df[col], errors="coerce")
                 hit_rate = parsed.notna().mean()
                 if hit_rate > 0.8 and parsed.notna().sum() > 10:
                     dates = parsed.dropna()
+                    yr_min = int(dates.min().year)
+                    yr_max = int(dates.max().year)
+                    if yr_min < 1990 or yr_max > 2035:  # sanity-check year range
+                        continue
                     meta["period_start"] = str(dates.min().date())
                     meta["period_end"]   = str(dates.max().date())
                     meta["period_days"]  = int((dates.max() - dates.min()).days)
