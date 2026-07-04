@@ -798,6 +798,7 @@ function renderLeaderboard(data) {
   const rows   = Object.entries(models)
     .filter(([,v]) => v.metrics)
     .sort((a,b) => a[1].metrics.mae - b[1].metrics.mae);
+  const errRows = Object.entries(models).filter(([,v]) => v.error);
 
   const table = document.getElementById("leaderboard");
   table.innerHTML = `
@@ -812,7 +813,9 @@ function renderLeaderboard(data) {
         <td>${m.mape ?? "–"}</td><td>${m.r2}</td>
         <td>${m.bias}</td><td>${m.training_time}s</td>
       </tr>`;
-    }).join("")}</tbody>`;
+    }).join("")}${errRows.map(([name, v]) =>
+      `<tr style="opacity:0.5"><td>${name} ⚠</td><td colspan="6" style="font-size:0.8em">${v.error}</td></tr>`
+    ).join("")}</tbody>`;
 
   // Feature importance
   if (best && models[best]?.metrics?.feature_importance) {
