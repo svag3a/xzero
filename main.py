@@ -1977,6 +1977,25 @@ async def get_workshop_analysis(workshop_id: str):
     return {"analysis_markdown": row[0], "created_at": row[1]}
 
 
+def _extract_hypotheses_regex(text: str) -> list:
+    """Extract hypotheses from report markdown using regex — no Claude needed."""
+    results = []
+    # Format 1: "Hypotes: ..." lines (standard opportunity scan format)
+    matches = re.findall(r'Hypotes(?:er)?:\s*(.+?)(?=\nHypotes|\n##|\Z)', text, re.DOTALL)
+    for i, m in enumerate(matches, 1):
+        title = re.sub(r'\s+', ' ', m.strip())[:300]
+        if title:
+            results.append({"hypothesis_id": f"H{i}", "title": title,
+                            "data_requirements": [], "model_archetype": {}, "candidate_use_case": {}})
+    if results:
+        return results
+    # Format 2: "### H1 – Title" or "**H1:** Title" headings
+    for m in re.finditer(r'(?:###?\s+|(?<!\w))\*{0,2}(H\d+)\*{0,2}[:\s–-]+(.+)', text):
+        results.append({"hypothesis_id": m.group(1), "title": m.group(2).strip()[:300],
+                        "data_requirements": [], "model_archetype": {}, "candidate_use_case": {}})
+    return results
+
+
 async def _extract_hypotheses_direct(text: str) -> list:
     """Extract hypotheses using direct Anthropic client (not Bedrock)."""
     try:
@@ -2086,6 +2105,16 @@ async def get_scan_hypotheses_for_datalab(scan_id: int):
                 else scan_row["report_markdown"] or "")
         if text:
             hypotheses = await _extract_hypotheses_direct(text)
+
+    # 6. Regex parser — no Claude needed, always works
+    if not hypotheses:
+        for text in filter(None, [
+            scan_row["report_markdown"],
+            ws_row["analysis_markdown"] if ws_row else None,
+        ]):
+            hypotheses = _extract_hypotheses_regex(text)
+            if hypotheses:
+                break
 
     return [
         {
