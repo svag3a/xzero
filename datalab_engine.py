@@ -162,9 +162,13 @@ def run_assessment(df: pd.DataFrame, mapping: dict) -> dict:
     for generic, col in mapping.items():
         if not col or col not in df.columns:
             continue
-        if not pd.api.types.is_numeric_dtype(df[col]):
-            continue
-        s = df[col].dropna()
+        s_raw = df[col]
+        if not pd.api.types.is_numeric_dtype(s_raw):
+            cleaned = s_raw.astype(str).str.replace(r"\s", "", regex=True).str.replace(",", ".")
+            s_raw = pd.to_numeric(cleaned, errors="coerce")
+            if s_raw.notna().sum() == 0:
+                continue
+        s = s_raw.dropna()
         if len(s) == 0:
             continue
         try:
@@ -199,7 +203,12 @@ def run_assessment(df: pd.DataFrame, mapping: dict) -> dict:
 
 def engineer_features(df: pd.DataFrame, mapping: dict, target_col: str) -> tuple:
     df = df.copy()
-    df[target_col] = pd.to_numeric(df[target_col], errors="coerce").fillna(0)
+    def _to_numeric(s):
+        if pd.api.types.is_numeric_dtype(s):
+            return s
+        cleaned = s.astype(str).str.replace(r"\s", "", regex=True).str.replace(",", ".")
+        return pd.to_numeric(cleaned, errors="coerce")
+    df[target_col] = _to_numeric(df[target_col]).fillna(0)
     # Find date/product columns by key name OR by detecting date-parseable columns
     date_col = mapping.get("date") or next(
         (v for k, v in mapping.items()
