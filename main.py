@@ -1981,27 +1981,45 @@ async def get_workshop_analysis(workshop_id: str):
 async def get_scan_hypotheses_for_datalab(scan_id: int):
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
-    scan_row = con.execute("SELECT workshop_hypotheses FROM scans WHERE id=?", (scan_id,)).fetchone()
+    scan_row = con.execute(
+        "SELECT workshop_hypotheses, report_markdown FROM scans WHERE id=?", (scan_id,)
+    ).fetchone()
     if not scan_row:
         con.close()
         raise HTTPException(status_code=404, detail="Scan hittades inte")
     ws_row = con.execute(
-        "SELECT session_json FROM workshop_sessions WHERE scan_id=? ORDER BY created_at DESC LIMIT 1",
+        "SELECT session_json, analysis_markdown FROM workshop_sessions WHERE scan_id=? ORDER BY created_at DESC LIMIT 1",
         (scan_id,)
     ).fetchone()
     con.close()
 
     hypotheses = []
+
+    # 1. Live workshop session hypotheses (user-validated)
     if ws_row:
         try:
             hypotheses = json.loads(ws_row["session_json"]).get("hypotheses", [])
         except Exception:
             pass
+
+    # 2. Scan-level stored hypotheses JSON
     if not hypotheses and scan_row["workshop_hypotheses"]:
         try:
             hypotheses = json.loads(scan_row["workshop_hypotheses"])
         except Exception:
             pass
+
+    # 3. Extract from workshop analysis markdown
+    if not hypotheses and ws_row and ws_row["analysis_markdown"]:
+        hypotheses = await asyncio.to_thread(
+            _extract_hypotheses_from_report, ws_row["analysis_markdown"]
+        )
+
+    # 4. Extract from original scan report
+    if not hypotheses and scan_row["report_markdown"]:
+        hypotheses = await asyncio.to_thread(
+            _extract_hypotheses_from_report, scan_row["report_markdown"]
+        )
 
     return [
         {
