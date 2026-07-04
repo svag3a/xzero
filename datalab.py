@@ -218,49 +218,6 @@ class CreateSession(BaseModel):
     hypothesis_json: str = ""   # full hypothesis object JSON from workshop
 
 
-@router.get("/api/scans/{scan_id}/hypotheses")
-async def get_scan_hypotheses(scan_id: int):
-    con = _db()
-    scan_row = con.execute(
-        "SELECT workshop_hypotheses FROM scans WHERE id=?", (scan_id,)
-    ).fetchone()
-    if not scan_row:
-        con.close()
-        raise HTTPException(404, "Scan hittades inte")
-
-    # Prefer live workshop session (has user-validated hypotheses)
-    ws_row = con.execute(
-        "SELECT session_json FROM workshop_sessions WHERE scan_id=? ORDER BY created_at DESC LIMIT 1",
-        (scan_id,)
-    ).fetchone()
-    con.close()
-
-    hypotheses = []
-    if ws_row:
-        try:
-            hypotheses = json.loads(ws_row["session_json"]).get("hypotheses", [])
-        except Exception:
-            pass
-    if not hypotheses:
-        raw = scan_row["workshop_hypotheses"]
-        if raw:
-            try:
-                hypotheses = json.loads(raw)
-            except Exception:
-                pass
-
-    return [
-        {
-            "id":                h.get("hypothesis_id", ""),
-            "title":             h.get("title", ""),
-            "data_requirements": h.get("data_requirements", []),
-            "prediction_target": (h.get("model_archetype") or {}).get("primary_prediction_target", ""),
-            "use_case":          (h.get("candidate_use_case") or {}).get("name", ""),
-        }
-        for h in hypotheses if isinstance(h, dict)
-    ]
-
-
 @router.post("/api/datalab", status_code=201)
 async def create_session(req: CreateSession):
     sid = str(uuid.uuid4())[:12].upper()
