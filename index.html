@@ -2891,7 +2891,7 @@
     wrap.style.display = "block";
     prev.style.display = "none";
 
-    if (!_dlHypotheses[scanId]) {
+    if (!_dlHypotheses[scanId] || _dlHypotheses[scanId].length === 0) {
       const res = await fetch(`/api/scans/${scanId}/hypotheses`).catch(() => null);
       if (!res) {
         selH.innerHTML = `<option value="">Fel: nätverksfel för scan ${scanId}</option>`;
