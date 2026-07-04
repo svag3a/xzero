@@ -731,23 +731,22 @@ function renderAssessment(data) {
 
 // ── Step 4: Target ────────────────────────────────────────────────────────────
 function renderTargetGrid() {
-  const cols   = session.dataset_meta?.columns || [];
-  const grid   = document.getElementById("target-grid");
+  const cols    = session.dataset_meta?.columns || [];
+  const dtypes  = session.dataset_meta?.dtypes  || {};
+  const grid    = document.getElementById("target-grid");
   const mapping = session.mapping || {};
+  const mappedVals = new Set(Object.values(mapping).filter(Boolean));
 
-  // Find numeric columns (mapped or sample)
-  const numericCols = [];
-  const mappedVals  = Object.values(mapping).filter(Boolean);
-  mappedVals.forEach(c => {
-    if (c && !["date","product_id","customer_id"].includes(
-      Object.keys(mapping).find(k => mapping[k] === c) || "")) {
-      numericCols.push(c);
-    }
+  // Only mapped columns that are numeric
+  const numericCols = cols.filter(c => {
+    if (!mappedVals.has(c)) return false;
+    const dtype = dtypes[c] || "";
+    return dtype.startsWith("int") || dtype.startsWith("float") || dtype.startsWith("Int");
   });
-  // Add remaining columns
-  cols.forEach(c => { if (!numericCols.includes(c)) numericCols.push(c); });
+  // Fallback: if nothing numeric is mapped, show all mapped columns
+  const display = numericCols.length ? numericCols : [...mappedVals];
 
-  grid.innerHTML = numericCols.slice(0,20).map(col => `
+  grid.innerHTML = display.slice(0, 20).map(col => `
     <button class="target-btn ${col === selectedTarget ? 'selected' : ''}"
             onclick="selectTarget('${col.replace(/'/g,"\\'")}')">
       ${col}

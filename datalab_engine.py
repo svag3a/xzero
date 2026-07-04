@@ -199,8 +199,15 @@ def run_assessment(df: pd.DataFrame, mapping: dict) -> dict:
 
 def engineer_features(df: pd.DataFrame, mapping: dict, target_col: str) -> tuple:
     df = df.copy()
-    date_col    = mapping.get("date")
-    prod_col    = mapping.get("product_id")
+    df[target_col] = pd.to_numeric(df[target_col], errors="coerce").fillna(0)
+    # Find date/product columns by key name OR by detecting date-parseable columns
+    date_col = mapping.get("date") or next(
+        (v for k, v in mapping.items()
+         if v and v in df.columns and "dat" in k.lower()
+         and pd.to_datetime(df[v], errors="coerce").notna().mean() > 0.8),
+        None
+    )
+    prod_col = mapping.get("product_id")
 
     if date_col and date_col in df.columns:
         df["_date"] = pd.to_datetime(df[date_col], errors="coerce")
