@@ -1205,16 +1205,20 @@
         Validera I-faktorn från en Opportunity Scan med kundens historiska data.
         Ladda upp ett dataset, kör AutoML och beräkna ELIR.
       </p>
-      <div style="margin-bottom:1.5rem">
-        <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:0.4rem">Länkad scan (valfritt)</label>
-        <select id="dl-scan-select" style="border:1px solid var(--border);border-radius:6px;padding:0.45rem 0.7rem;font-size:0.85rem;font-family:inherit;width:100%;max-width:340px">
-          <option value="">– Ingen scan –</option>
+      <div style="margin-bottom:1.25rem">
+        <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:0.4rem">Scan</label>
+        <select id="dl-scan-select" onchange="loadHypothesesForDataLab()"
+                style="border:1px solid var(--border);border-radius:6px;padding:0.45rem 0.7rem;font-size:0.85rem;font-family:inherit;width:100%;max-width:380px">
+          <option value="">– Välj scan –</option>
         </select>
       </div>
-      <div style="margin-bottom:1.5rem">
-        <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:0.4rem">Hypotes (valfritt)</label>
-        <input id="dl-hypothesis" type="text" placeholder="t.ex. Kan vi prediktera svinn med 15% bättre noggrannhet?"
-               style="border:1px solid var(--border);border-radius:6px;padding:0.45rem 0.7rem;font-size:0.85rem;font-family:inherit;width:100%;max-width:500px">
+      <div id="dl-hyp-wrap" style="margin-bottom:1.25rem;display:none">
+        <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);display:block;margin-bottom:0.4rem">Hypotes</label>
+        <select id="dl-hypothesis-select"
+                style="border:1px solid var(--border);border-radius:6px;padding:0.45rem 0.7rem;font-size:0.85rem;font-family:inherit;width:100%;max-width:500px">
+          <option value="">– Välj hypotes –</option>
+        </select>
+        <div id="dl-hyp-preview" style="margin-top:0.6rem;font-size:0.78rem;color:var(--text-muted);line-height:1.5;display:none"></div>
       </div>
       <button class="btn-primary" onclick="startDataLab()">Starta Data Lab →</button>
     </div>
@@ -2865,19 +2869,62 @@
 
   // ── Data Lab ──────────────────────────────────────────────────────────────
 
+  // keyed by scan_id → array of hypothesis objects
+  const _dlHypotheses = {};
+
   async function loadScansForDataLab() {
     const sel = document.getElementById("dl-scan-select");
     if (!sel) return;
     const data = scansData.length ? scansData : await fetch("/scans").then(r => r.json()).catch(() => []);
-    sel.innerHTML = '<option value="">– Ingen scan –</option>' +
+    sel.innerHTML = '<option value="">– Välj scan –</option>' +
       data.map(s => `<option value="${s.id}">${s.company_name || "–"} · ${(s.created_at||"").slice(0,10)}</option>`).join("");
   }
 
+  async function loadHypothesesForDataLab() {
+    const scanId = document.getElementById("dl-scan-select").value;
+    const wrap   = document.getElementById("dl-hyp-wrap");
+    const selH   = document.getElementById("dl-hypothesis-select");
+    const prev   = document.getElementById("dl-hyp-preview");
+    if (!scanId) { wrap.style.display = "none"; return; }
+
+    if (!_dlHypotheses[scanId]) {
+      _dlHypotheses[scanId] = await fetch(`/api/scans/${scanId}/hypotheses`)
+        .then(r => r.json()).catch(() => []);
+    }
+    const hyps = _dlHypotheses[scanId];
+    if (!hyps.length) { wrap.style.display = "none"; return; }
+
+    selH.innerHTML = '<option value="">– Välj hypotes –</option>' +
+      hyps.map((h, i) => `<option value="${i}">${h.id ? h.id + " – " : ""}${h.title}</option>`).join("");
+    selH.onchange = () => {
+      const h = hyps[selH.value];
+      if (!h) { prev.style.display = "none"; return; }
+      const dr = (h.data_requirements || []).filter(d => d.required);
+      prev.innerHTML =
+        (h.prediction_target ? `<strong>Prediktionsmål:</strong> ${h.prediction_target}<br>` : "") +
+        (h.use_case          ? `<strong>Use case:</strong> ${h.use_case}<br>` : "") +
+        (dr.length ? `<strong>Nödvändig data:</strong> ${dr.map(d => d.data_name).join(", ")}` : "");
+      prev.style.display = "block";
+    };
+    wrap.style.display = "block";
+    prev.style.display = "none";
+  }
+
   async function startDataLab() {
-    const scanId    = document.getElementById("dl-scan-select").value;
-    const hypothesis = document.getElementById("dl-hypothesis").value.trim();
-    const body = { hypothesis };
-    if (scanId) body.scan_id = parseInt(scanId);
+    const scanId  = document.getElementById("dl-scan-select").value;
+    const selH    = document.getElementById("dl-hypothesis-select");
+    const hypIdx  = selH ? selH.value : "";
+    const hyps    = scanId ? (_dlHypotheses[scanId] || []) : [];
+    const hypObj  = hypIdx !== "" ? hyps[parseInt(hypIdx)] : null;
+
+    if (!scanId) { alert("Välj en scan först."); return; }
+    if (hyps.length && !hypObj) { alert("Välj en hypotes."); return; }
+
+    const body = {
+      scan_id:        parseInt(scanId),
+      hypothesis:     hypObj ? `${hypObj.id ? hypObj.id + " – " : ""}${hypObj.title}` : "",
+      hypothesis_json: hypObj ? JSON.stringify(hypObj) : "",
+    };
     try {
       const res  = await fetch("/api/datalab", {
         method: "POST", headers: {"Content-Type":"application/json"},

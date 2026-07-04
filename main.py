@@ -199,12 +199,13 @@ def init_db():
             updated_at     TEXT NOT NULL
         )
     """)
-    # Migration: add generic_labels to existing deployments
-    try:
-        con.execute("ALTER TABLE datalab_sessions ADD COLUMN generic_labels TEXT")
-        con.commit()
-    except Exception:
-        pass  # column already exists
+    # Migrations: add columns to existing deployments
+    for col in ("generic_labels TEXT", "hypothesis_json TEXT"):
+        try:
+            con.execute(f"ALTER TABLE datalab_sessions ADD COLUMN {col}")
+            con.commit()
+        except Exception:
+            pass
     con.commit()
     con.close()
 

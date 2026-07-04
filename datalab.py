@@ -54,7 +54,7 @@ def _get_session(sid: str) -> dict:
     if not row:
         raise HTTPException(404, "Session hittades inte")
     d = dict(row)
-    for f in ("dataset_meta","generic_labels","mapping","assessment","benchmark","replay","simulation","elir"):
+    for f in ("dataset_meta","generic_labels","hypothesis_json","mapping","assessment","benchmark","replay","simulation","elir"):
         if d.get(f):
             try:
                 d[f] = json.loads(d[f])
@@ -80,21 +80,33 @@ def _update_session(sid: str, **fields):
 
 async def _claude_suggest_mapping(
     columns: list[str], sample_rows: list,
-    hypothesis: str = "", company_name: str = ""
+    hypothesis: str = "", company_name: str = "",
+    data_requirements: list = None, prediction_target: str = "",
 ) -> tuple[dict, dict]:
     """Returns (generic_labels, mapping)."""
+    data_req_section = ""
+    if data_requirements:
+        data_req_section = f"""
+Datakrav identifierade i workshop-analysen:
+{json.dumps(data_requirements, ensure_ascii=False, indent=2)}
+Prediktionsmål: {prediction_target or "ej angivet"}
+
+Använd datakraven som utgångspunkt för den generiska datamodellen.
+"""
+
     prompt = f"""Du är ett datamappningsverktyg för xZero Opportunity Scan.
 
 Kund: {company_name or "okänd"}
 Hypotes: {hypothesis or "ej angiven"}
-Kundens kolumner: {json.dumps(columns)}
+{data_req_section}
+Kundens uppladdade kolumner: {json.dumps(columns)}
 Exempelrader (max 3): {json.dumps(sample_rows[:3])}
 
 Din uppgift:
-1. Identifiera verksamhetstypen utifrån kund, hypotes, kolumnnamn och exempelvärden.
-2. Definiera en generisk datamodell med 5–12 kolumner som passar JUST DENNA verksamhet.
+1. Identifiera verksamhetstypen och vad som ska predikteras.
+2. Definiera en generisk datamodell med 5–12 kolumner anpassad till JUST DENNA verksamhet.
    Använd snake_case-nycklar (t.ex. "date", "location_id", "glass_kg").
-   Etiketterna ska vara på svenska och beskriva vad kolumnen innehåller.
+   Etiketterna ska vara på svenska och beskrivande.
 3. Mappa kundens kolumner mot din generiska modell (null om ingen passande kolumn finns).
 
 Returnera ENBART detta JSON-objekt, inget annat:
@@ -201,8 +213,37 @@ async def list_sessions():
 
 
 class CreateSession(BaseModel):
-    scan_id:    int | None = None
-    hypothesis: str = ""
+    scan_id:        int | None = None
+    hypothesis:     str = ""
+    hypothesis_json: str = ""   # full hypothesis object JSON from workshop
+
+
+@router.get("/api/scans/{scan_id}/hypotheses")
+async def get_scan_hypotheses(scan_id: int):
+    con = _db()
+    row = con.execute(
+        "SELECT workshop_hypotheses, company_name FROM scans WHERE id=?", (scan_id,)
+    ).fetchone()
+    con.close()
+    if not row:
+        raise HTTPException(404, "Scan hittades inte")
+    raw = row["workshop_hypotheses"] if row else None
+    if not raw:
+        return []
+    try:
+        hypotheses = json.loads(raw)
+        return [
+            {
+                "id":               h.get("hypothesis_id", ""),
+                "title":            h.get("title", ""),
+                "data_requirements": h.get("data_requirements", []),
+                "prediction_target": (h.get("model_archetype") or {}).get("primary_prediction_target", ""),
+                "use_case":         (h.get("candidate_use_case") or {}).get("name", ""),
+            }
+            for h in (hypotheses if isinstance(hypotheses, list) else [])
+        ]
+    except Exception:
+        return []
 
 
 @router.post("/api/datalab", status_code=201)
@@ -210,7 +251,6 @@ async def create_session(req: CreateSession):
     sid = str(uuid.uuid4())[:12].upper()
     now = _now()
     con = _db()
-    # get scan company name if available
     company = ""
     if req.scan_id:
         row = con.execute("SELECT company_name FROM scans WHERE id=?", (req.scan_id,)).fetchone()
@@ -218,9 +258,9 @@ async def create_session(req: CreateSession):
             company = row[0] or ""
     con.execute(
         """INSERT INTO datalab_sessions
-           (id, scan_id, hypothesis, step, status, company_name, created_at, updated_at)
-           VALUES (?,?,?,1,'active',?,?,?)""",
-        (sid, req.scan_id, req.hypothesis, company, now, now)
+           (id, scan_id, hypothesis, hypothesis_json, step, status, company_name, created_at, updated_at)
+           VALUES (?,?,?,?,1,'active',?,?,?)""",
+        (sid, req.scan_id, req.hypothesis, req.hypothesis_json or None, company, now, now)
     )
     con.commit()
     con.close()
@@ -261,10 +301,20 @@ async def upload_dataset(sid: str, files: List[UploadFile] = File(...)):
     meta = compute_dataset_meta(df, filename)
 
     sess = _get_session(sid)
+    hyp_obj = {}
+    raw_hyp = sess.get("hypothesis_json")
+    if raw_hyp:
+        try:
+            hyp_obj = json.loads(raw_hyp) if isinstance(raw_hyp, str) else raw_hyp
+        except Exception:
+            pass
+
     generic_labels, mapping = await _claude_suggest_mapping(
         meta["columns"], meta["sample_rows"],
         hypothesis=sess.get("hypothesis", ""),
         company_name=sess.get("company_name", ""),
+        data_requirements=hyp_obj.get("data_requirements") or [],
+        prediction_target=hyp_obj.get("prediction_target", ""),
     )
 
     _update_session(sid, step=2, dataset_meta=meta, generic_labels=generic_labels, mapping=mapping)
