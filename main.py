@@ -1977,6 +1977,37 @@ async def get_workshop_analysis(workshop_id: str):
     return {"analysis_markdown": row[0], "created_at": row[1]}
 
 
+@app.get("/api/scans/{scan_id}/hypotheses-debug")
+async def debug_scan_hypotheses(scan_id: int):
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    scan_row = con.execute(
+        "SELECT workshop_hypotheses, report_markdown FROM scans WHERE id=?", (scan_id,)
+    ).fetchone()
+    if not scan_row:
+        con.close()
+        return {"error": "scan not found"}
+    ws_row = con.execute(
+        "SELECT session_json, analysis_markdown FROM workshop_sessions WHERE scan_id=? ORDER BY created_at DESC LIMIT 1",
+        (scan_id,)
+    ).fetchone()
+    con.close()
+    ws_hyp_count = 0
+    if ws_row:
+        try:
+            ws_hyp_count = len(json.loads(ws_row["session_json"]).get("hypotheses", []))
+        except Exception:
+            pass
+    return {
+        "scan_workshop_hypotheses_null": scan_row["workshop_hypotheses"] is None,
+        "workshop_session_exists":       ws_row is not None,
+        "workshop_session_hyp_count":    ws_hyp_count,
+        "analysis_markdown_len":         len(ws_row["analysis_markdown"] or "") if ws_row else 0,
+        "report_markdown_len":           len(scan_row["report_markdown"] or ""),
+        "report_has_hypotes_keyword":    "hypotes" in (scan_row["report_markdown"] or "").lower(),
+    }
+
+
 @app.get("/api/scans/{scan_id}/hypotheses")
 async def get_scan_hypotheses_for_datalab(scan_id: int):
     con = sqlite3.connect(DB_PATH)
