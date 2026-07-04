@@ -463,6 +463,31 @@
     .tab-btn[data-tab="db"].active       { color:#6b7280; border-bottom-color:#6b7280; }
     .tab-btn[data-tab="datalab"].active  { color:#0ea5e9; border-bottom-color:#0ea5e9; }
 
+    .tab-more { position: relative; margin-bottom: -2px; }
+    .tab-more-btn {
+      font-family: inherit; font-size: 0.9rem; font-weight: 600;
+      color: var(--text-muted); background: none; border: none;
+      padding: 0.65rem 1.25rem; cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s;
+    }
+    .tab-more-btn:hover, .tab-more-btn.open { color: var(--text); }
+    .tab-more-btn.active { color:#6b7280; border-bottom-color:#6b7280; }
+    .tab-more-dropdown {
+      display: none; position: absolute; top: calc(100% + 2px); right: 0;
+      background: #fff; border: 1px solid var(--border); border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.10); min-width: 140px; z-index: 100;
+      padding: 0.35rem 0;
+    }
+    .tab-more-dropdown.open { display: block; }
+    .tab-more-dropdown button {
+      display: block; width: 100%; text-align: left;
+      font-family: inherit; font-size: 0.88rem; font-weight: 500;
+      color: var(--text); background: none; border: none;
+      padding: 0.55rem 1rem; cursor: pointer;
+    }
+    .tab-more-dropdown button:hover { background: var(--accent-light); }
+
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
 
@@ -997,9 +1022,14 @@
     <button class="tab-btn active" data-tab="scan"     onclick="switchTab('scan')">Scan</button>
     <button class="tab-btn"        data-tab="workshop" onclick="switchTab('workshop')">Workshop</button>
     <button class="tab-btn"        data-tab="analysis" onclick="switchTab('analysis')">Analys</button>
-    <button class="tab-btn"        data-tab="crm"      onclick="switchTab('crm')">CRM</button>
-    <button class="tab-btn"        data-tab="db"       onclick="switchTab('db')">Arkiv</button>
     <button class="tab-btn"        data-tab="datalab"  onclick="switchTab('datalab')">Data Lab</button>
+    <div class="tab-more">
+      <button class="tab-more-btn" id="tab-more-btn" onclick="toggleMoreMenu()">Mer ▾</button>
+      <div class="tab-more-dropdown" id="tab-more-dropdown">
+        <button onclick="switchTab('crm');   toggleMoreMenu()">CRM</button>
+        <button onclick="switchTab('db');    toggleMoreMenu()">Arkiv</button>
+      </div>
+    </div>
   </div>
 
   <!-- ── Tab: Ny analys ── -->
@@ -1562,6 +1592,23 @@
   // ── Copy markdown ──────────────────────────────────────────────
 
   // ── Tabs ────────────────────────────────────────────────────────
+  function toggleMoreMenu() {
+    const dd  = document.getElementById("tab-more-dropdown");
+    const btn = document.getElementById("tab-more-btn");
+    const open = dd.classList.toggle("open");
+    btn.classList.toggle("open", open);
+    if (open) {
+      const close = (e) => {
+        if (!document.getElementById("tab-more-btn").contains(e.target)) {
+          dd.classList.remove("open");
+          btn.classList.remove("open");
+          document.removeEventListener("click", close);
+        }
+      };
+      setTimeout(() => document.addEventListener("click", close), 0);
+    }
+  }
+
   function switchTab(name) {
     document.querySelectorAll(".tab-btn").forEach(b => {
       b.classList.toggle("active", b.dataset.tab === name);
@@ -1569,6 +1616,9 @@
     document.querySelectorAll(".tab-panel").forEach(p => {
       p.classList.toggle("active", p.id === "tab-" + name);
     });
+    // Highlight "Mer"-button when a dropdown tab is active
+    const moreBtn = document.getElementById("tab-more-btn");
+    if (moreBtn) moreBtn.classList.toggle("active", ["crm","db"].includes(name));
     if (name === "db")       loadScans();
     if (name === "analysis") loadWorkshopSessions();
     if (name === "workshop") loadScansForWorkshop();
