@@ -162,24 +162,27 @@ def run_assessment(df: pd.DataFrame, mapping: dict) -> dict:
     for generic, col in mapping.items():
         if not col or col not in df.columns:
             continue
-        if generic in ("date", "product_id", "customer_id"):
+        if not pd.api.types.is_numeric_dtype(df[col]):
             continue
         s = df[col].dropna()
         if len(s) == 0:
             continue
-        cv = float(s.std() / (abs(s.mean()) + 1e-9))
-        stats[generic] = {
-            "col": col,
-            "min":       round(float(s.min()), 2),
-            "max":       round(float(s.max()), 2),
-            "mean":      round(float(s.mean()), 2),
-            "std":       round(float(s.std()), 2),
-            "cv":        round(cv, 2),
-            "zeros_pct": round(float((s == 0).mean() * 100), 1),
-        }
-        if cv > 3:
-            issues.append(f"Hög variation i '{col}' (CV={cv:.1f}) — kontrollera outliers")
-            deductions += 0.10
+        try:
+            cv = float(s.std() / (abs(s.mean()) + 1e-9))
+            stats[generic] = {
+                "col": col,
+                "min":       round(float(s.min()), 2),
+                "max":       round(float(s.max()), 2),
+                "mean":      round(float(s.mean()), 2),
+                "std":       round(float(s.std()), 2),
+                "cv":        round(cv, 2),
+                "zeros_pct": round(float((s == 0).mean() * 100), 1),
+            }
+            if cv > 3:
+                issues.append(f"Hög variation i '{col}' (CV={cv:.1f}) — kontrollera outliers")
+                deductions += 0.10
+        except Exception:
+            pass
 
     prod_col = mapping.get("product_id")
     if prod_col and prod_col in df.columns:
