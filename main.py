@@ -1977,6 +1977,34 @@ async def get_workshop_analysis(workshop_id: str):
     return {"analysis_markdown": row[0], "created_at": row[1]}
 
 
+async def _extract_hypotheses_direct(text: str) -> list:
+    """Extract hypotheses using direct Anthropic client (not Bedrock)."""
+    try:
+        client = anthropic.Anthropic()
+        resp = client.messages.create(
+            model="claude-opus-4-8",
+            max_tokens=4000,
+            messages=[{"role": "user", "content": (
+                "Extrahera alla hypoteser från texten nedan som en JSON-array. "
+                "Varje hypotes ska ha fälten: hypothesis_id (t.ex. H1), title (string), "
+                "data_requirements (array med {data_name, required, data_likelihood, reason}), "
+                "model_archetype ({primary_prediction_target}), "
+                "candidate_use_case ({name}). "
+                "Returnera BARA JSON-arrayen, inget annat.\n\n" + text[:12000]
+            )}],
+        )
+        raw = resp.content[0].text.strip()
+        raw = re.sub(r'^```(?:json)?\s*', '', raw, flags=re.MULTILINE)
+        raw = re.sub(r'\s*```$', '', raw, flags=re.MULTILINE)
+        start, end = raw.find('['), raw.rfind(']')
+        if start == -1 or end == -1:
+            return []
+        return json.loads(raw[start:end + 1])
+    except Exception as e:
+        logging.warning(f"[hypotheses_direct] extraction failed: {e}")
+        return []
+
+
 @app.get("/api/scans/{scan_id}/hypotheses-debug")
 async def debug_scan_hypotheses(scan_id: int):
     con = sqlite3.connect(DB_PATH)
@@ -2040,17 +2068,24 @@ async def get_scan_hypotheses_for_datalab(scan_id: int):
         except Exception:
             pass
 
-    # 3. Extract from workshop analysis markdown
+    # 3. Extract from workshop analysis markdown (Bedrock)
     if not hypotheses and ws_row and ws_row["analysis_markdown"]:
         hypotheses = await asyncio.to_thread(
             _extract_hypotheses_from_report, ws_row["analysis_markdown"]
         )
 
-    # 4. Extract from original scan report
+    # 4. Extract from original scan report (Bedrock)
     if not hypotheses and scan_row["report_markdown"]:
         hypotheses = await asyncio.to_thread(
             _extract_hypotheses_from_report, scan_row["report_markdown"]
         )
+
+    # 5. Extract using direct Anthropic client (fallback when Bedrock unavailable)
+    if not hypotheses:
+        text = (ws_row["analysis_markdown"] if ws_row and ws_row["analysis_markdown"]
+                else scan_row["report_markdown"] or "")
+        if text:
+            hypotheses = await _extract_hypotheses_direct(text)
 
     return [
         {
