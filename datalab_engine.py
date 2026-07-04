@@ -598,4 +598,5 @@ def calculate_elir(actual: list, simulated: list) -> dict:
         "mae_baseline":   round(mae_baseline, 3),
         "mae_model":      round(mae_model, 3),
         "confidence":     confidence,
+        "n_samples":      len(a),
     }

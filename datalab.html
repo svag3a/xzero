@@ -1067,6 +1067,7 @@ function renderElir(data) {
     ["MAE baseline",      data.mae_baseline ?? "–"],
     ["MAE modell",        data.mae_model    ?? "–"],
     ["Volymavvikelse",    (data.volume_diff_pct ?? "–") + "%"],
+    ["Testpunkter (n)",   data.n_samples ?? "–"],
   ].map(([l,v]) => `<div class="stat-box">
     <div class="stat-label">${l}</div>
     <div class="stat-value">${v}</div>
