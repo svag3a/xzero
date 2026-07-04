@@ -335,10 +335,26 @@ def engineer_features(df: pd.DataFrame, mapping: dict, target_col: str) -> tuple
     )
     prod_col = mapping.get("product_id")
 
+    # Identify external numeric columns (not target, not date/id cols from mapping)
+    mapped_cols = set(v for v in mapping.values() if v)
+    skip_cols   = {target_col, date_col} | (mapped_cols - {target_col})
+    _KNOWN_EXTERNAL = {"is_holiday","is_weekend","season","days_to_holiday",
+                       "temp_max","temp_min","precip_mm","wind_max"}
+    external_cols = [
+        c for c in df.columns
+        if c not in skip_cols
+        and pd.api.types.is_numeric_dtype(df[c])
+        and (c in _KNOWN_EXTERNAL or c not in mapped_cols)
+    ]
+
     if date_col and date_col in df.columns:
         df["_date"] = pd.to_datetime(df[date_col], errors="coerce")
         df = df.dropna(subset=["_date"]).sort_values("_date").reset_index(drop=True)
-        agg_df = df.groupby("_date")[target_col].sum().reset_index()
+        # Aggregate: sum target, mean for external features (they're already per-day)
+        agg: dict = {target_col: "sum"}
+        for c in external_cols:
+            agg[c] = "mean"
+        agg_df = df.groupby("_date").agg(agg).reset_index()
         df = agg_df.rename(columns={"_date": "__date"})
     else:
         df = df.reset_index(drop=True)
@@ -367,6 +383,11 @@ def engineer_features(df: pd.DataFrame, mapping: dict, target_col: str) -> tuple
             feats["year"]      = d.dt.year - int(d.dt.year.min())
         except Exception:
             pass
+
+    # Add external columns directly as features
+    for c in external_cols:
+        if c in df.columns:
+            feats[c] = df[c].values
 
     valid = feats.notna().all(axis=1)
     return feats[valid].reset_index(drop=True), y[valid].reset_index(drop=True), dates[valid].reset_index(drop=True)
