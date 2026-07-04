@@ -296,21 +296,51 @@ class NaiveAdapter(BaseAdapter):
         return np.full(len(X), self._val)
 
 
-class LGBMAdapter(BaseAdapter):
-    name = "LightGBM"
+class GBMAdapter(BaseAdapter):
+    name = "Gradient Boosting"
 
     def __init__(self):
         self._model = None
         self._feats: list[str] = []
 
     def fit(self, X, y):
-        import lightgbm as lgb
+        from sklearn.ensemble import GradientBoostingRegressor
         t = time.time()
         self._feats = list(X.columns)
-        m = lgb.LGBMRegressor(
-            n_estimators=300, learning_rate=0.05,
-            num_leaves=31, min_child_samples=5,
-            n_jobs=2, verbose=-1,
+        m = GradientBoostingRegressor(
+            n_estimators=200, learning_rate=0.05,
+            max_depth=4, min_samples_leaf=5,
+            subsample=0.8, random_state=42,
+        )
+        m.fit(X, y)
+        self._model = m
+        return time.time() - t
+
+    def predict(self, X):
+        return self._model.predict(X)
+
+    def feature_importance(self):
+        if not self._model:
+            return {}
+        imp   = self._model.feature_importances_
+        total = sum(imp) or 1
+        return {f: round(float(v / total * 100), 1) for f, v in zip(self._feats, imp)}
+
+
+class RFAdapter(BaseAdapter):
+    name = "Random Forest"
+
+    def __init__(self):
+        self._model = None
+        self._feats: list[str] = []
+
+    def fit(self, X, y):
+        from sklearn.ensemble import RandomForestRegressor
+        t = time.time()
+        self._feats = list(X.columns)
+        m = RandomForestRegressor(
+            n_estimators=100, max_depth=6,
+            min_samples_leaf=5, n_jobs=1, random_state=42,
         )
         m.fit(X, y)
         self._model = m
@@ -329,10 +359,11 @@ class LGBMAdapter(BaseAdapter):
 
 def get_adapters() -> list[BaseAdapter]:
     adapters: list[BaseAdapter] = [NaiveAdapter()]
-    try:
-        adapters.append(LGBMAdapter())
-    except Exception:
-        pass
+    for cls in (GBMAdapter, RFAdapter):
+        try:
+            adapters.append(cls())
+        except Exception:
+            pass
     return adapters
 
 
