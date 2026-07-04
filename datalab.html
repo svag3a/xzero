@@ -234,11 +234,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
          ondragover="event.preventDefault();this.classList.add('drag')"
          ondragleave="this.classList.remove('drag')"
          ondrop="handleFileDrop(event)">
-      <input type="file" id="file-input" accept=".csv,.xlsx,.xls" onchange="handleFileSelect(event)">
+      <input type="file" id="file-input" accept=".csv,.xlsx,.xls" multiple onchange="handleFileSelect(event)">
       <div class="upload-icon">📂</div>
       <div class="upload-label">
-        Dra hit en fil eller <span>välj från datorn</span><br>
-        <small style="color:var(--faint)">Excel (.xlsx, .xls) eller CSV</small>
+        Dra hit en eller flera filer eller <span>välj från datorn</span><br>
+        <small style="color:var(--faint)">Excel (.xlsx, .xls) eller CSV — filer med samma kolumner slås ihop</small>
       </div>
     </div>
 
@@ -568,35 +568,42 @@ function goStep(n) {
 function handleFileDrop(e) {
   e.preventDefault();
   document.getElementById("upload-zone").classList.remove("drag");
-  const file = e.dataTransfer.files[0];
-  if (file) uploadFile(file);
+  const files = Array.from(e.dataTransfer.files).filter(f =>
+    /\.(csv|xlsx|xls)$/i.test(f.name));
+  if (files.length) uploadFiles(files);
 }
 function handleFileSelect(e) {
-  const file = e.target.files[0];
-  if (file) uploadFile(file);
+  const files = Array.from(e.target.files);
+  if (files.length) uploadFiles(files);
 }
 
-async function uploadFile(file) {
+async function uploadFiles(files) {
   document.getElementById("upload-zone").style.display = "none";
-  document.getElementById("upload-progress").style.display = "block";
+  const prog = document.getElementById("upload-progress");
+  prog.style.display = "block";
+  prog.querySelector("div").textContent =
+    files.length > 1 ? `Analyserar ${files.length} filer…` : "Analyserar fil…";
 
   const fd = new FormData();
-  fd.append("file", file);
+  for (const f of files) fd.append("files", f);
+
   try {
-    const res  = await fetch(`/api/datalab/${SID}/upload`, { method: "POST", body: fd });
-    const data = await res.json();
+    const res = await fetch(`/api/datalab/${SID}/upload`, { method: "POST", body: fd });
+    let data;
+    try { data = await res.json(); }
+    catch { throw new Error(`Serverfel (${res.status}) — kontrollera att filen är giltig`); }
     if (!res.ok) throw new Error(data.detail || "Uppladdning misslyckades");
 
     uploadedMeta = data.meta;
     session.mapping = data.mapping;
     session.dataset_meta = data.meta;
 
-    document.getElementById("upload-progress").style.display = "none";
+    prog.style.display = "none";
     renderMeta(data.meta);
     renderMappingTable(data.mapping, data.meta.columns);
     document.getElementById("btn-1-next").disabled = false;
   } catch(e) {
-    document.getElementById("upload-progress").style.display = "none";
+    prog.style.display = "none";
     document.getElementById("upload-zone").style.display = "block";
     alert("Fel: " + e.message);
   }

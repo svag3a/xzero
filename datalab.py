@@ -9,6 +9,7 @@ from pathlib import Path
 
 import anthropic
 from fastapi import APIRouter, UploadFile, File, HTTPException
+from typing import List
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -219,21 +220,32 @@ async def get_session(sid: str):
 
 
 @router.post("/api/datalab/{sid}/upload")
-async def upload_dataset(sid: str, file: UploadFile = File(...)):
+async def upload_dataset(sid: str, files: List[UploadFile] = File(...)):
     _get_session(sid)  # verify exists
-    content = await file.read()
+    import pandas as pd
+
+    dfs = []
+    for f in files:
+        content = await f.read()
+        try:
+            dfs.append(parse_file(content, f.filename))
+        except Exception as e:
+            raise HTTPException(400, f"Kunde inte läsa '{f.filename}': {e}")
+
+    if not dfs:
+        raise HTTPException(400, "Inga filer mottagna")
+
     try:
-        import pandas as pd
-        df = parse_file(content, file.filename)
+        df = pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
     except Exception as e:
-        raise HTTPException(400, f"Kunde inte läsa filen: {e}")
+        raise HTTPException(400, f"Kunde inte slå ihop filer (kontrollera att kolumnerna stämmer): {e}")
 
     # save as parquet
     path = _session_path(sid) / "data.parquet"
     df.to_parquet(str(path), index=False)
 
-    meta = compute_dataset_meta(df, file.filename)
-    heuristic = suggest_mapping_heuristic(meta["columns"])
+    filename = files[0].filename if len(files) == 1 else f"{len(files)} filer"
+    meta = compute_dataset_meta(df, filename)
 
     # Claude-improved mapping
     mapping = await _claude_suggest_mapping(meta["columns"], meta["sample_rows"])
