@@ -1065,7 +1065,7 @@ function renderElir(data) {
   document.getElementById("elir-stats").innerHTML = [
     ["Noggrannhetsvinst", (data.accuracy_gain ?? "–") + "%"],
     ["MAE baseline",      data.mae_baseline ?? "–"],
-    ["MAE modell",        data.mae_model    ?? "–"],
+    ["MAE modell (sim)",  data.mae_model    ?? "–"],
     ["Volymavvikelse",    (data.volume_diff_pct ?? "–") + "%"],
     ["Testpunkter (n)",   data.n_samples ?? "–"],
   ].map(([l,v]) => `<div class="stat-box">
