@@ -314,6 +314,68 @@ async def upload_dataset(sid: str, files: List[UploadFile] = File(...)):
     return {"meta": meta, "mapping": mapping, "generic_labels": generic_labels}
 
 
+class EnrichRequest(BaseModel):
+    weather:  bool  = False
+    lat:      float = 59.33
+    lon:      float = 18.07
+    location: str   = "Stockholm"
+    calendar: bool  = False
+
+@router.post("/api/datalab/{sid}/enrich")
+async def enrich_dataset(sid: str, body: EnrichRequest):
+    import pandas as pd
+    import httpx
+    from datalab_engine import enrich_with_external, find_date_col
+
+    sess = _get_session(sid)
+    path = _session_path(sid) / "data.csv"
+    if not path.exists():
+        raise HTTPException(400, "Dataset saknas — ladda upp filen först")
+
+    df = pd.read_csv(str(path))
+    date_col = find_date_col(df)
+    if not date_col:
+        raise HTTPException(400, "Ingen datumkolumn hittades i datasetet")
+
+    weather_df = None
+    if body.weather:
+        dates = pd.to_datetime(df[date_col], errors="coerce").dropna()
+        start = dates.min().strftime("%Y-%m-%d")
+        end   = dates.max().strftime("%Y-%m-%d")
+        url = (
+            f"https://archive-api.open-meteo.com/v1/archive"
+            f"?latitude={body.lat}&longitude={body.lon}"
+            f"&start_date={start}&end_date={end}"
+            f"&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max"
+            f"&timezone=Europe%2FStockholm"
+        )
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(url)
+        if resp.status_code != 200:
+            raise HTTPException(502, f"Open-Meteo svarade {resp.status_code}")
+        raw = resp.json().get("daily", {})
+        weather_df = pd.DataFrame({
+            "date":        raw.get("time", []),
+            "temp_max":    raw.get("temperature_2m_max", []),
+            "temp_min":    raw.get("temperature_2m_min", []),
+            "precip_mm":   raw.get("precipitation_sum", []),
+            "wind_max":    raw.get("wind_speed_10m_max", []),
+        })
+        weather_df["date"] = pd.to_datetime(weather_df["date"])
+
+    df_enriched, added_cols = enrich_with_external(
+        df, date_col, weather_df=weather_df, calendar=body.calendar
+    )
+    df_enriched.to_csv(str(path), index=False)
+
+    # Rebuild meta with new columns
+    from datalab_engine import compute_dataset_meta
+    meta = compute_dataset_meta(df_enriched, sess.get("dataset_meta", {}).get("filename", "data.csv"))
+    _update_session(sid, dataset_meta=meta)
+
+    return {"added_columns": added_cols, "total_columns": len(df_enriched.columns)}
+
+
 @router.post("/api/datalab/{sid}/mapping")
 async def save_mapping(sid: str, body: dict):
     _get_session(sid)

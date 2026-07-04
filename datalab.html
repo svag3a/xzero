@@ -259,6 +259,43 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       </div>
     </div>
 
+    <!-- External factors panel (shown after upload) -->
+    <div id="enrich-panel" style="display:none;margin-top:1.25rem">
+      <div class="card">
+        <div class="card-title">Externa faktorer <span style="font-weight:400;font-size:0.85em;color:var(--text-muted)">(valfritt)</span></div>
+        <p style="margin:0 0 1rem;font-size:0.9rem;color:var(--text-muted)">Berika datasetet med externa signaler innan modellering.</p>
+
+        <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;cursor:pointer">
+          <input type="checkbox" id="enrich-calendar" checked>
+          <span><strong>Kalender</strong> — helgdagar, röda dagar, säsong, dagar till närmaste helg</span>
+        </label>
+
+        <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;cursor:pointer">
+          <input type="checkbox" id="enrich-weather" onchange="toggleWeatherLocation()">
+          <span><strong>Väder</strong> — temperatur, nederbörd, vindstyrka (Open-Meteo)</span>
+        </label>
+
+        <div id="weather-location" style="display:none;margin-left:1.5rem;margin-bottom:0.75rem">
+          <select id="enrich-city" style="padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:6px;font-size:0.9rem">
+            <option value="59.33,18.07">Stockholm</option>
+            <option value="57.71,11.97">Göteborg</option>
+            <option value="55.61,13.00">Malmö</option>
+            <option value="59.86,17.64">Uppsala</option>
+            <option value="58.41,15.62">Linköping</option>
+            <option value="63.83,20.26">Umeå</option>
+            <option value="65.58,22.15">Luleå</option>
+            <option value="59.27,15.21">Örebro</option>
+            <option value="56.88,14.81">Växjö</option>
+          </select>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:1rem">
+          <button class="btn-secondary" id="btn-enrich" onclick="enrichDataset()">Berika dataset</button>
+          <span id="enrich-status" style="font-size:0.85rem;color:var(--text-muted)"></span>
+        </div>
+      </div>
+    </div>
+
     <div class="step-nav">
       <button class="btn-primary" id="btn-1-next" onclick="goStep(2)" disabled>
         Nästa: Datamappning →
@@ -620,6 +657,7 @@ async function uploadFiles(files) {
 
 function renderMeta(meta) {
   document.getElementById("upload-result").style.display = "block";
+  document.getElementById("enrich-panel").style.display  = "block";
   const sg = document.getElementById("meta-stats");
   sg.innerHTML = [
     ["Rader",     meta.rows?.toLocaleString()],
@@ -640,6 +678,56 @@ function renderMeta(meta) {
       <thead><tr>${cols.map(c => `<th>${c}</th>`).join("")}</tr></thead>
       <tbody>${rows.map(r => `<tr>${r.map(v => `<td>${v}</td>`).join("")}</tr>`).join("")}</tbody>
     </table>`;
+}
+
+// ── External factors ─────────────────────────────────────────────────────────
+
+function toggleWeatherLocation() {
+  const show = document.getElementById("enrich-weather").checked;
+  document.getElementById("weather-location").style.display = show ? "block" : "none";
+}
+
+async function enrichDataset() {
+  const useWeather  = document.getElementById("enrich-weather").checked;
+  const useCalendar = document.getElementById("enrich-calendar").checked;
+  if (!useWeather && !useCalendar) return;
+
+  const btn    = document.getElementById("btn-enrich");
+  const status = document.getElementById("enrich-status");
+  btn.disabled = true;
+  status.textContent = "Hämtar data…";
+  status.style.color = "var(--text-muted)";
+
+  const cityVal = document.getElementById("enrich-city")?.value || "59.33,18.07";
+  const [lat, lon] = cityVal.split(",").map(Number);
+  const cityName = document.getElementById("enrich-city")?.selectedOptions[0]?.text || "Stockholm";
+
+  try {
+    const res  = await fetch(`/api/datalab/${SID}/enrich`, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ weather: useWeather, lat, lon, location: cityName, calendar: useCalendar }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || res.statusText);
+
+    const added = data.added_columns || [];
+    status.textContent = `✓ ${added.length} kolumner tillagda: ${added.join(", ")}`;
+    status.style.color = "var(--green, #16a34a)";
+    btn.textContent = "Berika igen";
+
+    // Refresh meta display
+    const metaRes = await fetch(`/api/datalab/${SID}`);
+    if (metaRes.ok) {
+      const s = await metaRes.json();
+      if (s.dataset_meta) { session.dataset_meta = s.dataset_meta; renderMeta(s.dataset_meta); }
+    }
+  } catch(e) {
+    status.textContent = `Fel: ${e.message}`;
+    status.style.color = "var(--red, #dc2626)";
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ── Step 2: Mapping ───────────────────────────────────────────────────────────

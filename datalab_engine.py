@@ -76,6 +76,123 @@ def parse_file(content: bytes, filename: str) -> pd.DataFrame:
         return pd.read_excel(io.BytesIO(content))
 
 
+def find_date_col(df: pd.DataFrame) -> str | None:
+    """Return the most likely date column name, or None."""
+    _DATE_HINTS = ["date","datum","dag","day","week","vecka","month","månad",
+                   "period","time","tid","year","år","quarter","kvartal"]
+    for col in df.columns:
+        if any(h in col.lower() for h in _DATE_HINTS):
+            try:
+                if pd.to_datetime(df[col], errors="coerce").notna().mean() > 0.8:
+                    return col
+            except Exception:
+                pass
+    for col in df.columns:
+        if df[col].dtype.kind in ("i", "u", "f"):
+            continue
+        try:
+            parsed = pd.to_datetime(df[col], errors="coerce")
+            if parsed.notna().mean() > 0.8 and parsed.notna().sum() > 10:
+                yr = parsed.dropna().dt.year
+                if yr.min() >= 1990 and yr.max() <= 2035:
+                    return col
+        except Exception:
+            pass
+    return None
+
+
+def _easter(year: int):
+    """Return Easter Sunday as date."""
+    from datetime import date as _date
+    a = year % 19; b = year // 100; c = year % 100
+    d = b // 4;    e = b % 4;      f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19*a + b - d - g + 15) % 30
+    i = c // 4;    k = c % 4
+    l = (32 + 2*e + 2*i - h - k) % 7
+    m = (a + 11*h + 22*l) // 451
+    month = (h + l - 7*m + 114) // 31
+    day   = ((h + l - 7*m + 114) % 31) + 1
+    return _date(year, month, day)
+
+
+def _swedish_holidays(year: int) -> set:
+    from datetime import date as _date, timedelta
+    e = _easter(year)
+    holidays = {
+        _date(year, 1, 1),   # Nyårsdagen
+        _date(year, 1, 6),   # Trettondedag jul
+        e - timedelta(2),    # Långfredag
+        e,                   # Påskdagen
+        e + timedelta(1),    # Annandag påsk
+        _date(year, 5, 1),   # Första maj
+        e + timedelta(39),   # Kristi himmelsfärdsdag
+        e + timedelta(49),   # Pingstdagen
+        _date(year, 6, 6),   # Nationaldagen
+        _date(year, 12, 25), # Juldagen
+        _date(year, 12, 26), # Annandag jul
+    }
+    # Midsommardagen: first Saturday >= Jun 20
+    d = _date(year, 6, 20)
+    while d.weekday() != 5:
+        d = d + timedelta(1)
+    holidays.add(d)
+    # Alla helgons dag: first Saturday >= Oct 31
+    d = _date(year, 10, 31)
+    while d.weekday() != 5:
+        d = d + timedelta(1)
+    holidays.add(d)
+    return holidays
+
+
+def enrich_with_external(
+    df: pd.DataFrame, date_col: str,
+    weather_df: pd.DataFrame | None = None,
+    calendar: bool = False,
+) -> tuple[pd.DataFrame, list[str]]:
+    """Merge weather and/or calendar features into df. Returns (enriched_df, added_col_names)."""
+    from datetime import timedelta
+    df = df.copy()
+    added: list[str] = []
+
+    dates_parsed = pd.to_datetime(df[date_col], errors="coerce")
+    date_only = dates_parsed.dt.date  # for holiday lookup
+
+    if calendar:
+        years = set(dates_parsed.dt.year.dropna().astype(int))
+        all_holidays: set = set()
+        for y in years:
+            try:
+                all_holidays |= _swedish_holidays(y)
+            except Exception:
+                pass
+
+        df["is_holiday"]      = date_only.apply(lambda d: int(d in all_holidays) if pd.notna(d) else 0).astype(int)
+        df["is_weekend"]      = dates_parsed.dt.dayofweek.apply(lambda x: int(x >= 5) if pd.notna(x) else 0).astype(int)
+        df["season"]          = dates_parsed.dt.month.apply(
+            lambda m: 1 if m in (12,1,2) else 2 if m in (3,4,5) else 3 if m in (6,7,8) else 4
+            if pd.notna(m) else 0
+        ).astype(int)
+        hol_list = sorted(all_holidays)
+        def days_to_nearest(d):
+            if not pd.notna(d): return 0
+            if not hol_list: return 0
+            return min(abs((d - h).days) for h in hol_list)
+        df["days_to_holiday"] = date_only.apply(days_to_nearest).astype(int)
+        added += ["is_holiday", "is_weekend", "season", "days_to_holiday"]
+
+    if weather_df is not None and not weather_df.empty:
+        weather_df = weather_df.copy()
+        weather_df["_merge_date"] = pd.to_datetime(weather_df["date"]).dt.normalize()
+        df["_merge_date"]         = dates_parsed.dt.normalize()
+        weather_cols = [c for c in weather_df.columns if c not in ("date", "_merge_date")]
+        df = df.merge(weather_df[["_merge_date"] + weather_cols], on="_merge_date", how="left")
+        df = df.drop(columns=["_merge_date"])
+        added += weather_cols
+
+    return df, added
+
+
 def compute_dataset_meta(df: pd.DataFrame, filename: str) -> dict:
     meta = {
         "filename": filename,
