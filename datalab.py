@@ -27,8 +27,22 @@ DB_PATH     = DATA_DIR / "scans.db"
 LAB_DIR     = DATA_DIR / "datalab"
 LAB_DIR.mkdir(exist_ok=True)
 
-_claude = anthropic.Anthropic()
-_MODEL  = "claude-opus-4-8"
+_MODEL_DIRECT  = "claude-opus-4-8"
+_MODEL_BEDROCK = "us.anthropic.claude-opus-4-8"
+
+def _get_claude():
+    """Return (client, model_id) — Bedrock if AWS creds available, else direct."""
+    if os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY"):
+        try:
+            client = anthropic.AnthropicBedrock(
+                aws_access_key=os.environ["AWS_ACCESS_KEY_ID"],
+                aws_secret_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+                aws_region=os.environ.get("AWS_DEFAULT_REGION", "eu-west-1"),
+            )
+            return client, _MODEL_BEDROCK
+        except Exception:
+            pass
+    return anthropic.Anthropic(), _MODEL_DIRECT
 
 
 def _db():
@@ -116,8 +130,9 @@ Returnera ENBART detta JSON-objekt, inget annat:
 }}"""
 
     try:
-        resp = _claude.messages.create(
-            model=_MODEL,
+        client, model = _get_claude()
+        resp = client.messages.create(
+            model=model,
             max_tokens=800,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -150,8 +165,9 @@ Skriv en kort (3-5 meningar), konkret tolkning på svenska:
 Inga rubriker, bara löpande text."""
 
     try:
-        resp = _claude.messages.create(
-            model=_MODEL,
+        client, model = _get_claude()
+        resp = client.messages.create(
+            model=model,
             max_tokens=400,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -182,8 +198,9 @@ Skriv ett beslutsunderlag på 4-6 meningar på svenska:
 Direkt, konkret ton. Inga rubriker."""
 
     try:
-        resp = _claude.messages.create(
-            model=_MODEL,
+        client, model = _get_claude()
+        resp = client.messages.create(
+            model=model,
             max_tokens=500,
             messages=[{"role": "user", "content": prompt}],
         )
