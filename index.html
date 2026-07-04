@@ -2887,17 +2887,25 @@
     const prev   = document.getElementById("dl-hyp-preview");
     if (!scanId) { wrap.style.display = "none"; return; }
 
+    selH.innerHTML = '<option value="">Laddar…</option>';
+    wrap.style.display = "block";
+    prev.style.display = "none";
+
     if (!_dlHypotheses[scanId]) {
-      _dlHypotheses[scanId] = await fetch(`/api/scans/${scanId}/hypotheses`)
-        .then(r => r.json()).catch(() => []);
+      const res = await fetch(`/api/scans/${scanId}/hypotheses`).catch(() => null);
+      _dlHypotheses[scanId] = (res && res.ok) ? await res.json().catch(() => []) : [];
     }
     const hyps = _dlHypotheses[scanId];
-    if (!hyps.length) { wrap.style.display = "none"; return; }
+
+    if (!hyps.length) {
+      selH.innerHTML = '<option value="">– Inga hypoteser (scan saknar workshop-analys) –</option>';
+      return;
+    }
 
     selH.innerHTML = '<option value="">– Välj hypotes –</option>' +
       hyps.map((h, i) => `<option value="${i}">${h.id ? h.id + " – " : ""}${h.title}</option>`).join("");
     selH.onchange = () => {
-      const h = hyps[selH.value];
+      const h = hyps[parseInt(selH.value)];
       if (!h) { prev.style.display = "none"; return; }
       const dr = (h.data_requirements || []).filter(d => d.required);
       prev.innerHTML =
@@ -2906,8 +2914,6 @@
         (dr.length ? `<strong>Nödvändig data:</strong> ${dr.map(d => d.data_name).join(", ")}` : "");
       prev.style.display = "block";
     };
-    wrap.style.display = "block";
-    prev.style.display = "none";
   }
 
   async function startDataLab() {
