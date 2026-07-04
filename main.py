@@ -180,24 +180,31 @@ def init_db():
         pass
     con.execute("""
         CREATE TABLE IF NOT EXISTS datalab_sessions (
-            id           TEXT PRIMARY KEY,
-            scan_id      INTEGER,
-            hypothesis   TEXT,
-            step         INTEGER DEFAULT 1,
-            status       TEXT DEFAULT 'active',
-            company_name TEXT,
-            dataset_meta TEXT,
-            mapping      TEXT,
-            assessment   TEXT,
-            target_col   TEXT,
-            benchmark    TEXT,
-            replay       TEXT,
-            simulation   TEXT,
-            elir         TEXT,
-            created_at   TEXT NOT NULL,
-            updated_at   TEXT NOT NULL
+            id             TEXT PRIMARY KEY,
+            scan_id        INTEGER,
+            hypothesis     TEXT,
+            step           INTEGER DEFAULT 1,
+            status         TEXT DEFAULT 'active',
+            company_name   TEXT,
+            dataset_meta   TEXT,
+            generic_labels TEXT,
+            mapping        TEXT,
+            assessment     TEXT,
+            target_col     TEXT,
+            benchmark      TEXT,
+            replay         TEXT,
+            simulation     TEXT,
+            elir           TEXT,
+            created_at     TEXT NOT NULL,
+            updated_at     TEXT NOT NULL
         )
     """)
+    # Migration: add generic_labels to existing deployments
+    try:
+        con.execute("ALTER TABLE datalab_sessions ADD COLUMN generic_labels TEXT")
+        con.commit()
+    except Exception:
+        pass  # column already exists
     con.commit()
     con.close()
 

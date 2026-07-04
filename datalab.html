@@ -504,7 +504,7 @@ async function init() {
       document.getElementById("btn-1-next").disabled = false;
     }
     if (session.mapping) {
-      renderMappingTable(session.mapping, session.dataset_meta?.columns || []);
+      renderMappingTable(session.mapping, session.dataset_meta?.columns || [], session.generic_labels || {});
     }
     if (session.assessment) {
       renderAssessment(session.assessment);
@@ -601,14 +601,15 @@ async function uploadFiles(files) {
     catch { throw new Error("Serverfel (" + res.status + ") — kontrollera att filen är giltig"); }
     if (!res.ok) throw new Error(data.detail || "Uppladdning misslyckades");
 
-    uploadedMeta        = data.meta;
-    session.mapping     = data.mapping || {};
-    session.dataset_meta = data.meta;
-    session.step        = Math.max(session.step || 1, 2);
+    uploadedMeta           = data.meta;
+    session.mapping        = data.mapping || {};
+    session.dataset_meta   = data.meta;
+    session.generic_labels = data.generic_labels || {};
+    session.step           = Math.max(session.step || 1, 2);
 
     document.getElementById("upload-progress").style.display = "none";
     renderMeta(data.meta);
-    renderMappingTable(data.mapping || {}, (data.meta || {}).columns || []);
+    renderMappingTable(data.mapping || {}, (data.meta || {}).columns || [], data.generic_labels || {});
     document.getElementById("btn-1-next").disabled = false;
   } catch(e) {
     document.getElementById("upload-progress").style.display = "none";
@@ -648,9 +649,10 @@ const GENERIC_LABELS = {
   qty_stock:"Lager", qty_waste:"Svinn", price:"Pris", cost:"Kostnad", revenue:"Omsättning"
 };
 
-function renderMappingTable(mapping, columns) {
+function renderMappingTable(mapping, columns, genericLabels) {
+  const labels = (genericLabels && Object.keys(genericLabels).length) ? genericLabels : GENERIC_LABELS;
   const tbody = document.querySelector("#mapping-table tbody");
-  tbody.innerHTML = Object.entries(GENERIC_LABELS).map(([key, label]) => {
+  tbody.innerHTML = Object.entries(labels).map(([key, label]) => {
     const opts = `<option value="">– Ej mappad –</option>` +
       columns.map(c => `<option value="${c}" ${mapping[key]===c?"selected":""}>${c}</option>`).join("");
     return `<tr>

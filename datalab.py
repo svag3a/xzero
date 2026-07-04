@@ -54,7 +54,7 @@ def _get_session(sid: str) -> dict:
     if not row:
         raise HTTPException(404, "Session hittades inte")
     d = dict(row)
-    for f in ("dataset_meta","mapping","assessment","benchmark","replay","simulation","elir"):
+    for f in ("dataset_meta","generic_labels","mapping","assessment","benchmark","replay","simulation","elir"):
         if d.get(f):
             try:
                 d[f] = json.loads(d[f])
@@ -78,26 +78,35 @@ def _update_session(sid: str, **fields):
 
 # ── Claude helpers ────────────────────────────────────────────────────────────
 
-async def _claude_suggest_mapping(columns: list[str], sample_rows: list) -> dict:
-    heuristic = suggest_mapping_heuristic(columns)
+async def _claude_suggest_mapping(
+    columns: list[str], sample_rows: list,
+    hypothesis: str = "", company_name: str = ""
+) -> tuple[dict, dict]:
+    """Returns (generic_labels, mapping)."""
     prompt = f"""Du är ett datamappningsverktyg för xZero Opportunity Scan.
 
+Kund: {company_name or "okänd"}
+Hypotes: {hypothesis or "ej angiven"}
 Kundens kolumner: {json.dumps(columns)}
-Exempelrader (max 5): {json.dumps(sample_rows[:3])}
-Heuristisk mappning (kan vara felaktig): {json.dumps(heuristic)}
+Exempelrader (max 3): {json.dumps(sample_rows[:3])}
 
-xZeros generiska datamodell:
-{json.dumps(GENERIC_LABELS, ensure_ascii=False)}
+Din uppgift:
+1. Identifiera verksamhetstypen utifrån kund, hypotes, kolumnnamn och exempelvärden.
+2. Definiera en generisk datamodell med 5–12 kolumner som passar JUST DENNA verksamhet.
+   Använd snake_case-nycklar (t.ex. "date", "location_id", "glass_kg").
+   Etiketterna ska vara på svenska och beskriva vad kolumnen innehåller.
+3. Mappa kundens kolumner mot din generiska modell (null om ingen passande kolumn finns).
 
-Returnera ENBART ett JSON-objekt där varje generisk nyckel mappas mot en av kundens kolumner,
-eller null om ingen passande kolumn finns.
-Tänk på kolumnnamnen OCH exempelvärdena för att avgöra vad kolumnerna innehåller.
-Svar ENBART med JSON, inget annat."""
+Returnera ENBART detta JSON-objekt, inget annat:
+{{
+  "generic_labels": {{"nyckel": "Etikett på svenska", ...}},
+  "mapping": {{"nyckel": "kundens_kolumn_eller_null", ...}}
+}}"""
 
     try:
         resp = _claude.messages.create(
             model=_MODEL,
-            max_tokens=500,
+            max_tokens=800,
             messages=[{"role": "user", "content": prompt}],
         )
         text = resp.content[0].text.strip()
@@ -105,10 +114,12 @@ Svar ENBART med JSON, inget annat."""
             text = text.split("```")[1]
             if text.startswith("json"):
                 text = text[4:]
-        return json.loads(text)
+        result = json.loads(text)
+        return result.get("generic_labels", GENERIC_LABELS), result.get("mapping", {})
     except Exception as e:
         logging.warning(f"[datalab] claude mapping failed: {e}")
-        return heuristic
+        heuristic = suggest_mapping_heuristic(columns)
+        return GENERIC_LABELS, heuristic
 
 
 async def _claude_interpret_assessment(assessment: dict, mapping: dict) -> str:
@@ -249,11 +260,15 @@ async def upload_dataset(sid: str, files: List[UploadFile] = File(...)):
     filename = files[0].filename if len(files) == 1 else f"{len(files)} filer"
     meta = compute_dataset_meta(df, filename)
 
-    # Claude-improved mapping
-    mapping = await _claude_suggest_mapping(meta["columns"], meta["sample_rows"])
+    sess = _get_session(sid)
+    generic_labels, mapping = await _claude_suggest_mapping(
+        meta["columns"], meta["sample_rows"],
+        hypothesis=sess.get("hypothesis", ""),
+        company_name=sess.get("company_name", ""),
+    )
 
-    _update_session(sid, step=2, dataset_meta=meta, mapping=mapping)
-    return {"meta": meta, "mapping": mapping, "generic_labels": GENERIC_LABELS}
+    _update_session(sid, step=2, dataset_meta=meta, generic_labels=generic_labels, mapping=mapping)
+    return {"meta": meta, "mapping": mapping, "generic_labels": generic_labels}
 
 
 @router.post("/api/datalab/{sid}/mapping")
