@@ -842,9 +842,9 @@ ul li{{margin-bottom:.2rem}}
   <div class="elir-grid">
     <div class="elir-card good"><div class="val">{i_pct}%</div><div class="lbl">I-faktor</div></div>
     <div class="elir-card accent"><div class="val">{acc_gain}%</div><div class="lbl">Noggrannhetsvinst</div></div>
-    <div class="elir-card"><div class="val">{mae_base:.3f}</div><div class="lbl">MAE Baseline</div></div>
-    <div class="elir-card"><div class="val">{mae_model:.3f}</div><div class="lbl">MAE Modell</div></div>
-    <div class="elir-card"><div class="val">{n_samples:,}</div><div class="lbl">Testpunkter</div></div>
+    <div class="elir-card"><div class="val">{f"{mae_base:.3f}" if isinstance(mae_base, (int,float)) else mae_base}</div><div class="lbl">MAE Baseline</div></div>
+    <div class="elir-card"><div class="val">{f"{mae_model:.3f}" if isinstance(mae_model, (int,float)) else mae_model}</div><div class="lbl">MAE Modell</div></div>
+    <div class="elir-card"><div class="val">{f"{n_samples:,}" if isinstance(n_samples, int) else n_samples}</div><div class="lbl">Testpunkter</div></div>
     <div class="elir-card"><div class="val">{_e(conf)}</div><div class="lbl">Konfidens</div></div>
   </div>
   {f'<div class="narrative">{narrative}</div>' if narrative else ''}
@@ -855,7 +855,7 @@ ul li{{margin-bottom:.2rem}}
 <section>
   <h2>Dataset &amp; modellering</h2>
   <div class="stat-row">
-    <div class="stat"><span class="v">{rows_n:,}</span><span class="k">Rader</span></div>
+    <div class="stat"><span class="v">{f"{rows_n:,}" if isinstance(rows_n, int) else rows_n}</span><span class="k">Rader</span></div>
     <div class="stat"><span class="v">{cols_n}</span><span class="k">Kolumner</span></div>
     <div class="stat"><span class="v">{_e(str(dt_from)[:10])}</span><span class="k">Från</span></div>
     <div class="stat"><span class="v">{_e(str(dt_to)[:10])}</span><span class="k">Till</span></div>
