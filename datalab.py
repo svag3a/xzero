@@ -548,3 +548,338 @@ async def get_report(sid: str):
         "simulation": sess.get("simulation"),
         "elir":       sess.get("elir"),
     }
+
+
+def _e(s):
+    if not s:
+        return ""
+    return (str(s).replace("&","&amp;").replace("<","&lt;")
+            .replace(">","&gt;").replace('"',"&quot;"))
+
+
+def _simulation_svg(actual: list, simulated: list, max_pts: int = 300) -> str:
+    """Generate an inline SVG line chart of actual vs simulated."""
+    import math
+    n = len(actual)
+    if n == 0:
+        return ""
+    step = max(1, math.ceil(n / max_pts))
+    idx  = list(range(0, n, step))
+    if idx[-1] != n - 1:
+        idx.append(n - 1)
+    act = [actual[i]    for i in idx]
+    sim = [simulated[i] for i in idx]
+    m   = len(idx)
+
+    W, H, PL, PR, PT, PB = 800, 220, 60, 20, 20, 40
+    cw, ch = W - PL - PR, H - PT - PB
+    all_v  = act + sim
+    lo, hi = min(all_v), max(all_v)
+    rng    = hi - lo or 1
+
+    def px(i): return PL + i / (m - 1) * cw if m > 1 else PL
+    def py(v): return PT + ch - (v - lo) / rng * ch
+
+    grid = ""
+    for gi in range(5):
+        yy  = PT + gi / 4 * ch
+        val = hi - gi / 4 * rng
+        grid += (f'<line x1="{PL}" y1="{yy:.1f}" x2="{PL+cw}" y2="{yy:.1f}" '
+                 f'stroke="#e2e8f0" stroke-width="1"/>'
+                 f'<text x="{PL-6}" y="{yy+4:.1f}" text-anchor="end" '
+                 f'font-size="10" fill="#94a3b8">{val:.1f}</text>')
+
+    # X labels every ~8 points
+    xlabels = ""
+    ls = max(1, m // 8)
+    for i in range(0, m, ls):
+        xlabels += (f'<text x="{px(i):.1f}" y="{H-6}" text-anchor="middle" '
+                    f'font-size="9" fill="#94a3b8">{idx[i]}</text>')
+
+    def polyline(vals, color, dash=""):
+        pts = " ".join(f"{px(i):.1f},{py(v):.1f}" for i, v in enumerate(vals))
+        da  = f'stroke-dasharray="{dash}"' if dash else ""
+        return (f'<polyline points="{pts}" fill="none" stroke="{color}" '
+                f'stroke-width="1.8" {da} stroke-linejoin="round"/>')
+
+    note = f'<text x="{W-PR}" y="{PT-6}" text-anchor="end" font-size="9" fill="#94a3b8">Visar {m} av {n} punkter</text>' if n > max_pts else ""
+
+    return f"""<svg viewBox="0 0 {W} {H+10}" style="width:100%;display:block">
+  {note}{grid}
+  <line x1="{PL}" y1="{PT}" x2="{PL}" y2="{PT+ch}" stroke="#e2e8f0"/>
+  {polyline(act, "#94a3b8", "4 3")}
+  {polyline(sim, "#2563eb")}
+  <rect x="{PL}" y="{H-8}" width="10" height="3" fill="#94a3b8" rx="1"/>
+  <text x="{PL+14}" y="{H-3}" font-size="10" fill="#64748b">Faktiskt utfall</text>
+  <rect x="{PL+100}" y="{H-8}" width="10" height="3" fill="#2563eb" rx="1"/>
+  <text x="{PL+114}" y="{H-3}" font-size="10" fill="#64748b">Simulerat</text>
+</svg>"""
+
+
+def _datalab_report_html(sess: dict) -> str:
+    from datetime import date as _date
+
+    company   = _e(sess.get("company_name") or "Okänt bolag")
+    hyp_title = _e(sess.get("hypothesis") or "")
+    generated = _date.today().strftime("%d %B %Y").lstrip("0")
+
+    meta   = sess.get("dataset_meta") or {}
+    bench  = sess.get("benchmark")    or {}
+    sim    = sess.get("simulation")   or {}
+    elir   = sess.get("elir")         or {}
+    hyp_j  = sess.get("hypothesis_json")
+    if isinstance(hyp_j, str):
+        try: hyp_j = json.loads(hyp_j)
+        except Exception: hyp_j = {}
+    hyp_j = hyp_j or {}
+    target = _e(sess.get("target_col") or "")
+
+    # ── ELIR numbers ──────────────────────────────────────────────────────────
+    i_pct     = elir.get("i_pct", 0)
+    acc_gain  = elir.get("accuracy_gain", 0)
+    mae_base  = elir.get("mae_baseline", 0)
+    mae_model = elir.get("mae_model",    0)
+    n_samples = elir.get("n_samples",    0)
+    conf      = _e(elir.get("confidence", ""))
+    narrative = _e(elir.get("narrative", ""))
+    vol_diff  = elir.get("volume_diff_pct", 0)
+
+    # ── Benchmark table ───────────────────────────────────────────────────────
+    models     = bench.get("models", [])
+    best_model = bench.get("best_model", "")
+    bench_rows = ""
+    for m in models:
+        name  = _e(m.get("model",""))
+        is_b  = "★ " if m.get("model") == best_model else ""
+        err   = m.get("error")
+        if err:
+            bench_rows += f'<tr><td>{is_b}{name}</td><td colspan="5" style="color:#ef4444">{_e(str(err)[:80])}</td></tr>'
+        else:
+            me = m.get("metrics",{})
+            bench_rows += (f'<tr{"  class=\"best-row\"" if is_b else ""}>'
+                           f'<td><strong>{is_b}</strong>{name}</td>'
+                           f'<td>{me.get("mae","–")}</td>'
+                           f'<td>{me.get("rmse","–")}</td>'
+                           f'<td>{me.get("r2","–")}</td>'
+                           f'<td>{me.get("mape","–") if me.get("mape") is not None else "–"}</td>'
+                           f'<td>{me.get("bias","–")}</td></tr>')
+
+    # ── Simulation chart ──────────────────────────────────────────────────────
+    chart_svg = ""
+    if sim.get("actual") and sim.get("simulated"):
+        chart_svg = _simulation_svg(sim["actual"], sim["simulated"])
+
+    # ── Hypothesis details (from workshop JSON) ───────────────────────────────
+    vs_label = {
+        "confirmed":            "Bekräftad",
+        "confirmed_adjusted":   "Bekräftad med justering",
+        "partially_confirmed":  "Delvis bekräftad",
+        "rejected":             "Avvisad",
+        "not_discussed":        "Ej diskuterad",
+        "not_validated":        "Ej validerad",
+    }
+    vs      = hyp_j.get("validation_status", "")
+    vs_text = vs_label.get(vs, _e(vs))
+    vs_color = {"confirmed":"#10b981","confirmed_adjusted":"#10b981",
+                "partially_confirmed":"#f59e0b","rejected":"#ef4444"}.get(vs,"#64748b")
+
+    conf_summary = _e(hyp_j.get("confirmation_summary",""))
+    adj_notes    = _e(hyp_j.get("adjustment_notes",""))
+    new_findings = hyp_j.get("new_findings") or []
+    evidence     = hyp_j.get("evidence_collected") or []
+    use_cases    = hyp_j.get("recommended_use_cases") or []
+    quant_est    = hyp_j.get("quantification_estimates") or []
+
+    # Hypothesis section HTML
+    hyp_section = ""
+    if conf_summary or vs:
+        status_badge = f'<span style="background:{vs_color};color:#fff;padding:2px 10px;border-radius:12px;font-size:0.8rem;font-weight:600">{_e(vs_text)}</span>' if vs_text else ""
+        findings_html = "".join(f"<li>{_e(f)}</li>" for f in new_findings) if new_findings else ""
+        evidence_html = "".join(f"<li>{_e(e)}</li>" for e in evidence)     if evidence     else ""
+        adj_html      = f'<div class="detail-block"><h4>Justering</h4><p>{adj_notes}</p></div>' if adj_notes else ""
+
+        quant_rows = ""
+        for q in quant_est:
+            bv = q.get("base_value")
+            quant_rows += (f'<tr><td>{_e(q.get("metric",""))}</td>'
+                           f'<td>{_e(str(bv)) if bv is not None else "–"} {_e(q.get("unit",""))}</td>'
+                           f'<td>{_e(q.get("confidence",""))}</td>'
+                           f'<td>{_e(q.get("notes",""))}</td></tr>')
+
+        hyp_section = f"""
+        <section>
+          <h2>Hypotesvalidering</h2>
+          <div class="detail-block">
+            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem">
+              <h3 style="margin:0">{hyp_title}</h3>{status_badge}
+            </div>
+            {f'<p>{conf_summary}</p>' if conf_summary else ''}
+          </div>
+          {adj_html}
+          {f'<div class="detail-block"><h4>Nya insikter</h4><ul>{findings_html}</ul></div>' if findings_html else ''}
+          {f'<div class="detail-block"><h4>Insamlade bevis</h4><ul>{evidence_html}</ul></div>' if evidence_html else ''}
+          {f'''<div class="detail-block"><h4>Kvantifieringar</h4>
+          <table class="data-table"><thead><tr><th>Mått</th><th>Värde</th><th>Konfidens</th><th>Notering</th></tr></thead>
+          <tbody>{quant_rows}</tbody></table></div>''' if quant_rows else ''}
+        </section>"""
+
+    # Use cases section
+    uc_html = ""
+    for uc in use_cases:
+        dr_rows = ""
+        for dr in (uc.get("data_requirements") or []):
+            avail_color = {"high":"#10b981","medium":"#f59e0b","low":"#ef4444"}.get(dr.get("availability",""),"#64748b")
+            dr_rows += (f'<tr><td>{_e(dr.get("data_name",""))}</td>'
+                        f'<td><span style="color:{avail_color};font-weight:600">{_e(dr.get("availability",""))}</span></td>'
+                        f'<td>{_e(dr.get("owner",""))}</td>'
+                        f'<td>{_e(dr.get("prep_effort",""))}</td>'
+                        f'<td>{_e(dr.get("format_notes",""))}</td></tr>')
+        dr_table = (f'<table class="data-table" style="margin-top:0.75rem"><thead>'
+                    f'<tr><th>Dataset</th><th>Tillgänglighet</th><th>Ägare</th><th>Prep-insats</th><th>Format</th></tr></thead>'
+                    f'<tbody>{dr_rows}</tbody></table>') if dr_rows else ""
+        uc_html += f"""<div class="uc-card">
+          <div class="uc-head">
+            <span class="uc-module">{_e(uc.get("xzero_module",""))}</span>
+            <strong>{_e(uc.get("name",""))}</strong>
+            <span style="color:#64748b;font-size:0.85rem">{_e(uc.get("model_type",""))}</span>
+          </div>
+          <p>{_e(uc.get("description",""))}</p>
+          {f'<p><strong>Förväntat värde:</strong> {_e(uc.get("expected_value",""))}</p>' if uc.get("expected_value") else ''}
+          {f'<p><strong>Motivering:</strong> {_e(uc.get("motivation",""))}</p>' if uc.get("motivation") else ''}
+          {dr_table}
+        </div>"""
+
+    uc_section = f"<section><h2>Rekommenderade use cases</h2>{uc_html}</section>" if uc_html else ""
+
+    # Dataset stats
+    rows_n  = meta.get("rows", "–")
+    cols_n  = meta.get("cols", "–")
+    dt_from = meta.get("date_from") or meta.get("date_min","–")
+    dt_to   = meta.get("date_to")   or meta.get("date_max","–")
+    train_r = bench.get("train_rows","–")
+    test_r  = bench.get("test_rows","–")
+
+    return f"""<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Data Lab – {company}</title>
+<style>
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+:root{{
+  --navy:#0f1f3d;--blue:#2563eb;--green:#10b981;--amber:#f59e0b;
+  --red:#ef4444;--text:#1e293b;--muted:#64748b;--border:#e2e8f0;
+  --bg:#f8fafc;--card:#fff;
+}}
+body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  color:var(--text);background:var(--bg);font-size:15px;line-height:1.6}}
+.page{{max-width:920px;margin:0 auto;padding:2rem 1.5rem 4rem}}
+header{{background:var(--navy);color:#fff;padding:2rem 2.5rem;border-radius:12px;margin-bottom:2rem}}
+header .eyebrow{{font-size:0.75rem;letter-spacing:.08em;text-transform:uppercase;
+  color:rgba(255,255,255,.55);margin-bottom:.4rem}}
+header h1{{font-size:1.6rem;font-weight:700;line-height:1.2}}
+header .sub{{margin-top:.4rem;color:rgba(255,255,255,.65);font-size:.9rem}}
+section{{background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:1.5rem 2rem;margin-bottom:1.5rem}}
+section h2{{font-size:1rem;font-weight:700;color:var(--navy);text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:1.2rem;padding-bottom:.6rem;border-bottom:2px solid var(--border)}}
+section h3{{font-size:1rem;font-weight:600;margin-bottom:.5rem}}
+section h4{{font-size:.85rem;font-weight:600;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.05em;margin-bottom:.5rem}}
+p{{margin-bottom:.6rem;color:var(--text)}}
+ul{{padding-left:1.25rem;margin-bottom:.5rem}}
+ul li{{margin-bottom:.2rem}}
+.elir-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem;margin-bottom:1.25rem}}
+.elir-card{{background:var(--bg);border-radius:8px;padding:1rem;text-align:center}}
+.elir-card .val{{font-size:2rem;font-weight:800;line-height:1}}
+.elir-card .lbl{{font-size:.75rem;color:var(--muted);margin-top:.25rem;text-transform:uppercase;letter-spacing:.05em}}
+.elir-card.accent .val{{color:var(--blue)}}
+.elir-card.good   .val{{color:var(--green)}}
+.narrative{{background:#f0f9ff;border-left:3px solid var(--blue);padding:.75rem 1rem;
+  border-radius:0 8px 8px 0;font-size:.9rem;color:var(--text);white-space:pre-wrap}}
+.stat-row{{display:flex;flex-wrap:wrap;gap:1.5rem;margin-bottom:1rem}}
+.stat{{display:flex;flex-direction:column}}
+.stat .v{{font-size:1.1rem;font-weight:700}}
+.stat .k{{font-size:.78rem;color:var(--muted)}}
+.data-table{{width:100%;border-collapse:collapse;font-size:.85rem}}
+.data-table th{{background:var(--bg);text-align:left;padding:.5rem .75rem;
+  font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;
+  border-bottom:2px solid var(--border)}}
+.data-table td{{padding:.5rem .75rem;border-bottom:1px solid var(--border);vertical-align:top}}
+.data-table .best-row td{{background:#eff6ff}}
+.chart-wrap{{overflow-x:auto;margin-top:.5rem}}
+.detail-block{{background:var(--bg);border-radius:8px;padding:.875rem 1rem;margin-bottom:.75rem}}
+.uc-card{{border:1px solid var(--border);border-radius:8px;padding:1rem 1.25rem;margin-bottom:1rem}}
+.uc-head{{display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem;flex-wrap:wrap}}
+.uc-module{{background:var(--navy);color:#fff;font-size:.72rem;font-weight:700;
+  padding:2px 8px;border-radius:20px;letter-spacing:.04em}}
+.print-btn{{position:fixed;bottom:1.5rem;right:1.5rem;background:var(--blue);color:#fff;
+  border:none;padding:.65rem 1.25rem;border-radius:8px;cursor:pointer;font-size:.9rem;
+  font-weight:600;box-shadow:0 4px 12px rgba(37,99,235,.35)}}
+@media print{{
+  .print-btn{{display:none}}
+  body{{background:#fff}}
+  .page{{padding:0}}
+  header{{border-radius:0}}
+  section{{break-inside:avoid}}
+}}
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <div class="eyebrow">xZero Data Lab &mdash; Analysrapport</div>
+  <h1>{company}</h1>
+  <div class="sub">{hyp_title}{"&ensp;&middot;&ensp;" + generated if generated else ""}</div>
+</header>
+
+<section>
+  <h2>ELIR-resultat</h2>
+  <div class="elir-grid">
+    <div class="elir-card good"><div class="val">{i_pct}%</div><div class="lbl">I-faktor</div></div>
+    <div class="elir-card accent"><div class="val">{acc_gain}%</div><div class="lbl">Noggrannhetsvinst</div></div>
+    <div class="elir-card"><div class="val">{mae_base:.3f}</div><div class="lbl">MAE Baseline</div></div>
+    <div class="elir-card"><div class="val">{mae_model:.3f}</div><div class="lbl">MAE Modell</div></div>
+    <div class="elir-card"><div class="val">{n_samples:,}</div><div class="lbl">Testpunkter</div></div>
+    <div class="elir-card"><div class="val">{_e(conf)}</div><div class="lbl">Konfidens</div></div>
+  </div>
+  {f'<div class="narrative">{narrative}</div>' if narrative else ''}
+</section>
+
+{hyp_section}
+
+<section>
+  <h2>Dataset &amp; modellering</h2>
+  <div class="stat-row">
+    <div class="stat"><span class="v">{rows_n:,}</span><span class="k">Rader</span></div>
+    <div class="stat"><span class="v">{cols_n}</span><span class="k">Kolumner</span></div>
+    <div class="stat"><span class="v">{_e(str(dt_from)[:10])}</span><span class="k">Från</span></div>
+    <div class="stat"><span class="v">{_e(str(dt_to)[:10])}</span><span class="k">Till</span></div>
+    <div class="stat"><span class="v">{_e(target)}</span><span class="k">Målvariabel</span></div>
+    <div class="stat"><span class="v">{train_r}</span><span class="k">Träningsrader</span></div>
+    <div class="stat"><span class="v">{test_r}</span><span class="k">Testrader</span></div>
+  </div>
+  <table class="data-table">
+    <thead><tr><th>Modell</th><th>MAE</th><th>RMSE</th><th>R²</th><th>MAPE %</th><th>Bias</th></tr></thead>
+    <tbody>{bench_rows}</tbody>
+  </table>
+</section>
+
+{"<section><h2>Simulerat utfall vs verklighet</h2><div class='chart-wrap'>" + chart_svg + "</div></section>" if chart_svg else ""}
+
+{uc_section}
+
+</div>
+<button class="print-btn" onclick="window.print()">Skriv ut / Spara PDF</button>
+</body>
+</html>"""
+
+
+@router.get("/api/datalab/{sid}/report.html", response_class=HTMLResponse)
+async def get_report_html(sid: str):
+    sess = _get_session(sid)
+    if not sess.get("elir"):
+        raise HTTPException(400, "ELIR-beräkning saknas — slutför steg 9 först")
+    return HTMLResponse(_datalab_report_html(sess))
