@@ -1944,6 +1944,15 @@ WORKSHOPKONVERSATION / TRANSKRIPT:
                 "UPDATE workshop_sessions SET analysis_markdown=?, analysis_created_at=? WHERE id=?",
                 (full_analysis, now, workshop_id),
             )
+            # Persist hypotheses from session_json to scans.workshop_hypotheses so
+            # Data Lab can read them directly without falling back to regex extraction.
+            hyps = session.get("hypotheses", [])
+            if hyps and scan_id:
+                con.execute(
+                    "UPDATE scans SET workshop_hypotheses=? WHERE id=?",
+                    (json.dumps(hyps, ensure_ascii=False), scan_id),
+                )
+                print(f"[analysis] saved {len(hyps)} hypotheses to scans.workshop_hypotheses for scan {scan_id}")
             con.commit()
             con.close()
             print(f"[analysis] saved for workshop {workshop_id} ({len(full_analysis)} chars)")
@@ -2323,6 +2332,12 @@ WORKSHOPKONVERSATION / TRANSKRIPT:
                 "UPDATE workshop_sessions SET analysis_markdown=?, analysis_created_at=? WHERE id=?",
                 (full_analysis, now_ts, ws_id_for_save),
             )
+            if hypotheses and scan_id:
+                con.execute(
+                    "UPDATE scans SET workshop_hypotheses=? WHERE id=?",
+                    (json.dumps(hypotheses, ensure_ascii=False), scan_id),
+                )
+                print(f"[scan-analysis] saved {len(hypotheses)} hypotheses to scans.workshop_hypotheses for scan {scan_id}")
             con.commit()
             con.close()
             print(f"[scan-analysis] saved for scan {scan_id} via ws {ws_id_for_save} ({len(full_analysis)} chars)")
