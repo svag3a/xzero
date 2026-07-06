@@ -884,4 +884,10 @@ async def get_report_html(sid: str):
     sess = _get_session(sid)
     if not sess.get("elir"):
         raise HTTPException(400, "ELIR-beräkning saknas — slutför steg 9 först")
-    return HTMLResponse(_datalab_report_html(sess))
+    try:
+        html = _datalab_report_html(sess)
+        return HTMLResponse(html)
+    except Exception as exc:
+        import traceback
+        tb = traceback.format_exc()
+        return HTMLResponse(f"<pre style='color:red;padding:2rem'>{tb}</pre>", status_code=500)
