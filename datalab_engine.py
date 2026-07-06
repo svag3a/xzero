@@ -600,3 +600,129 @@ def calculate_elir(actual: list, simulated: list) -> dict:
         "confidence":     confidence,
         "n_samples":      len(a),
     }
+
+
+# ── Forward forecast ──────────────────────────────────────────────────────────
+
+def run_forecast(df: pd.DataFrame, mapping: dict, target_col: str, n_periods: int) -> dict:
+    """
+    Fit best model on full historical data, then recursively predict n_periods ahead.
+    Returns tail of history for chart context + forecast dates/values.
+    """
+    X, y, dates = engineer_features(df, mapping, target_col)
+    if len(X) < 20:
+        return {"error": "För lite data för prognos (minst 20 datapunkter krävs)"}
+
+    # Determine date frequency from the aggregated series
+    try:
+        date_series = pd.to_datetime(dates, errors="coerce")
+        deltas = date_series.diff().dropna().dt.days
+        freq_days = int(round(float(deltas.median()))) if len(deltas) else 1
+        freq_days = max(1, freq_days)
+        last_date = date_series.iloc[-1]
+    except Exception:
+        freq_days = 1
+        last_date = None
+
+    # Fit best available adapter on full dataset
+    for AdapterCls in (GBMAdapter, RFAdapter, NaiveAdapter):
+        try:
+            adapter = AdapterCls()
+            adapter.fit(X, y)
+            break
+        except Exception:
+            continue
+
+    feature_cols = list(X.columns)
+    lag_cols  = sorted([c for c in feature_cols if c.startswith("lag_")],
+                       key=lambda c: int(c.split("_")[1]))
+    roll_cols = [c for c in feature_cols if c.startswith("roll_")]
+
+    # Historical buffer for recursive lag/rolling computation
+    history = list(y.values)
+
+    # Seasonal means for external weather features (use global average per month)
+    _EXT_WEATHER = {"temp_max", "temp_min", "precip_mm", "wind_max"}
+    ext_monthly: dict = {}
+    for col in _EXT_WEATHER:
+        if col in feature_cols:
+            try:
+                vals = X[col].values
+                months = date_series.dt.month.values[-len(vals):]
+                monthly = {}
+                for m, v in zip(months, vals):
+                    monthly.setdefault(m, []).append(v)
+                ext_monthly[col] = {m: float(np.mean(vs)) for m, vs in monthly.items()}
+            except Exception:
+                ext_monthly[col] = {}
+
+    forecast_dates: list  = []
+    forecast_values: list = []
+
+    for i in range(n_periods):
+        if last_date is not None:
+            next_date = last_date + pd.Timedelta(days=freq_days * (i + 1))
+        else:
+            next_date = None
+
+        row: dict = {}
+
+        # Lag features
+        for lc in lag_cols:
+            lag_n = int(lc.split("_")[1])
+            row[lc] = history[-lag_n] if lag_n <= len(history) else float(np.mean(history))
+
+        # Rolling features
+        for rc in roll_cols:
+            parts = rc.split("_")
+            win = int(parts[-1])
+            buf = history[-win:] if len(history) >= win else history
+            if "std" in rc:
+                row[rc] = float(np.std(buf)) if len(buf) > 1 else 0.0
+            else:
+                row[rc] = float(np.mean(buf))
+
+        # Calendar features
+        if next_date is not None:
+            if "dayofweek" in feature_cols: row["dayofweek"] = next_date.dayofweek
+            if "month"     in feature_cols: row["month"]     = next_date.month
+            if "quarter"   in feature_cols: row["quarter"]   = (next_date.month - 1) // 3 + 1
+            if "dayofyear" in feature_cols: row["dayofyear"] = next_date.dayofyear
+            if "year"      in feature_cols: row["year"]      = max(0, next_date.year - int(date_series.dt.year.min()))
+            if "is_weekend"    in feature_cols: row["is_weekend"]    = 1 if next_date.dayofweek >= 5 else 0
+            if "is_holiday"    in feature_cols: row["is_holiday"]    = 0
+            if "season"        in feature_cols: row["season"]        = (next_date.month % 12) // 3
+            if "days_to_holiday" in feature_cols: row["days_to_holiday"] = 7
+
+            # Weather: use seasonal average for this month
+            for col in _EXT_WEATHER:
+                if col in feature_cols:
+                    m = next_date.month
+                    row[col] = ext_monthly.get(col, {}).get(m, float(np.mean(list(ext_monthly.get(col, {1: 0}).values()) or [0])))
+
+        # Fill any remaining features with column median from training data
+        for fc in feature_cols:
+            if fc not in row:
+                row[fc] = float(X[fc].median()) if fc in X.columns else 0.0
+
+        feat_df = pd.DataFrame([row])[feature_cols]
+        pred = float(adapter.predict(feat_df)[0])
+        pred = max(0.0, pred)
+
+        forecast_dates.append(str(next_date)[:10] if next_date is not None else str(len(history) + i))
+        forecast_values.append(round(pred, 3))
+        history.append(pred)
+
+    # Return last 90 history points as context for the chart
+    tail = min(90, len(y))
+    hist_dates  = [str(d)[:10] for d in date_series.iloc[-tail:]]
+    hist_actual = [round(float(v), 3) for v in y.iloc[-tail:].values]
+
+    return {
+        "history_dates":   hist_dates,
+        "history_actual":  hist_actual,
+        "forecast_dates":  forecast_dates,
+        "forecast_values": forecast_values,
+        "freq_days":       freq_days,
+        "model":           adapter.name,
+    }

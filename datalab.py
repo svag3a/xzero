@@ -17,7 +17,7 @@ from datalab_engine import (
     GENERIC_COLUMNS, GENERIC_LABELS, SIMULATION_RULES,
     suggest_mapping_heuristic, parse_file, compute_dataset_meta,
     run_assessment, engineer_features, get_adapters, run_replay,
-    apply_rule, calculate_elir,
+    apply_rule, calculate_elir, run_forecast,
 )
 
 router = APIRouter()
@@ -517,6 +517,26 @@ async def elir(sid: str):
 
     _update_session(sid, step=9, status="completed", elir=elir_result)
     return elir_result
+
+
+@router.post("/api/datalab/{sid}/forecast")
+async def forecast(sid: str, body: dict = None):
+    import pandas as pd
+    body = body or {}
+    n_periods = max(1, min(365, int(body.get("n_periods", 30))))
+    sess = _get_session(sid)
+    mapping = sess.get("mapping") or {}
+    target  = sess.get("target_col")
+    if not target:
+        raise HTTPException(400, "Välj målvariabel först (steg 5)")
+    path = _session_path(sid) / "data.csv"
+    if not path.exists():
+        raise HTTPException(400, "Datafil saknas")
+    df = pd.read_csv(str(path))
+    result = run_forecast(df, mapping, target, n_periods)
+    if "error" in result:
+        raise HTTPException(400, result["error"])
+    return result
 
 
 @router.delete("/api/datalab/{sid}")
