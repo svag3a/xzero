@@ -655,14 +655,16 @@ def _datalab_report_html(sess: dict) -> str:
         if err:
             bench_rows += f'<tr><td>{is_b}{name}</td><td colspan="5" style="color:#ef4444">{_e(str(err)[:80])}</td></tr>'
         else:
-            me = m.get("metrics",{})
-            bench_rows += (f'<tr{"  class=\"best-row\"" if is_b else ""}>'
+            me  = m.get("metrics", {})
+            tr_class = ' class="best-row"' if is_b else ""
+            dash = "–"
+            bench_rows += (f'<tr{tr_class}>'
                            f'<td><strong>{is_b}</strong>{name}</td>'
-                           f'<td>{me.get("mae","–")}</td>'
-                           f'<td>{me.get("rmse","–")}</td>'
-                           f'<td>{me.get("r2","–")}</td>'
-                           f'<td>{me.get("mape","–") if me.get("mape") is not None else "–"}</td>'
-                           f'<td>{me.get("bias","–")}</td></tr>')
+                           f'<td>{me.get("mae", dash)}</td>'
+                           f'<td>{me.get("rmse", dash)}</td>'
+                           f'<td>{me.get("r2", dash)}</td>'
+                           f'<td>{me.get("mape", dash) if me.get("mape") is not None else dash}</td>'
+                           f'<td>{me.get("bias", dash)}</td></tr>')
 
     # ── Simulation chart ──────────────────────────────────────────────────────
     chart_svg = ""
