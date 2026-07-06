@@ -645,21 +645,20 @@ def _datalab_report_html(sess: dict) -> str:
     vol_diff  = elir.get("volume_diff_pct", 0)
 
     # ── Benchmark table ───────────────────────────────────────────────────────
-    models     = bench.get("models", [])
+    models     = bench.get("models", {})
     best_model = bench.get("best_model", "")
     bench_rows = ""
-    for m in models:
-        name  = _e(m.get("model",""))
-        is_b  = "★ " if m.get("model") == best_model else ""
-        err   = m.get("error")
+    dash = "–"
+    for model_name, m in (models.items() if isinstance(models, dict) else []):
+        is_b     = "★ " if model_name == best_model else ""
+        tr_class = ' class="best-row"' if is_b else ""
+        err      = m.get("error")
         if err:
-            bench_rows += f'<tr><td>{is_b}{name}</td><td colspan="5" style="color:#ef4444">{_e(str(err)[:80])}</td></tr>'
+            bench_rows += f'<tr><td>{is_b}{_e(model_name)}</td><td colspan="5" style="color:#ef4444">{_e(str(err)[:80])}</td></tr>'
         else:
-            me  = m.get("metrics", {})
-            tr_class = ' class="best-row"' if is_b else ""
-            dash = "–"
+            me = m.get("metrics", {})
             bench_rows += (f'<tr{tr_class}>'
-                           f'<td><strong>{is_b}</strong>{name}</td>'
+                           f'<td><strong>{is_b}</strong>{_e(model_name)}</td>'
                            f'<td>{me.get("mae", dash)}</td>'
                            f'<td>{me.get("rmse", dash)}</td>'
                            f'<td>{me.get("r2", dash)}</td>'
