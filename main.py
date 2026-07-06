@@ -1812,6 +1812,106 @@ async def list_workshops():
     return [dict(r) for r in rows]
 
 
+_HYPOTHESIS_ENRICHMENT_PROMPT = """Du är en analytiker som extraherar strukturerad data ur en post-workshop-analysrapport.
+
+Rapporten innehåller bekräftade/justerade/avvisade hypoteser, rekommenderade use cases och databehov.
+
+Returnera ENBART en JSON-array — ett objekt per hypotes — med exakt detta schema:
+[
+  {
+    "hypothesis_id": "H1",
+    "validation_status": "confirmed | confirmed_adjusted | partially_confirmed | rejected | not_discussed",
+    "confirmation_summary": "Sammandrag av vad workshopen bekräftade för denna hypotes (1–3 meningar)",
+    "adjustment_notes": "Vad som justerades jämfört med ursprungshypotesen, eller null",
+    "new_findings": ["Ny insikt 1", "Ny insikt 2"],
+    "evidence_collected": ["Bevis/citat från kunden"],
+    "quantification_estimates": [
+      {
+        "metric": "Måttnamn",
+        "base_value": null,
+        "unit": "SEK / % / ton / etc",
+        "confidence": "low | medium | high",
+        "notes": "Hur uppskattningen gjordes"
+      }
+    ],
+    "recommended_use_cases": [
+      {
+        "name": "Use case-namn",
+        "xzero_module": "LeakZero | FlowZero | PriceZero | etc",
+        "model_type": "Klassificering / Prognos / Regelmotor / etc",
+        "description": "Fullständig beskrivning av use caset",
+        "expected_value": "Förväntat affärsvärde",
+        "motivation": "Varför detta use case rekommenderas",
+        "priority_rank": 1,
+        "data_requirements": [
+          {
+            "data_name": "Datasettets namn",
+            "availability": "high | medium | low",
+            "owner": "Namn / roll",
+            "format_notes": "Format och granularitet",
+            "prep_effort": "low | medium | high"
+          }
+        ]
+      }
+    ]
+  }
+]
+
+Täck ALLA hypoteser i rapporten. Om en hypotes inte diskuterades, sätt validation_status till "not_discussed" och lämna övriga fält tomma.
+Returnera BARA JSON-arrayen — ingen inledande text, inga kommentarer, inga kodblock."""
+
+
+def _extract_hypothesis_enrichment(analysis_markdown: str, original_hypotheses: list, client) -> list:
+    """Extract structured per-hypothesis data from analysis markdown and merge with originals."""
+    try:
+        resp = client.messages.create(
+            model="us.anthropic.claude-sonnet-4-6",
+            max_tokens=8000,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Extrahera strukturerad hypotesdata ur denna post-workshop-analysrapport:\n\n"
+                    + analysis_markdown[:24000]
+                ),
+            }],
+            system=_HYPOTHESIS_ENRICHMENT_PROMPT,
+        )
+        raw = resp.content[0].text.strip()
+        raw = re.sub(r'^```(?:json)?\s*', '', raw, flags=re.MULTILINE)
+        raw = re.sub(r'\s*```$', '', raw, flags=re.MULTILINE)
+        start, end = raw.find('['), raw.rfind(']')
+        if start == -1 or end == -1:
+            print("[enrichment] no JSON array found in response")
+            return original_hypotheses
+        enriched_list = json.loads(raw[start:end + 1])
+
+        # Merge: original hypothesis fields + enrichment fields
+        enriched_by_id = {e.get("hypothesis_id"): e for e in enriched_list if isinstance(e, dict)}
+        result = []
+        for orig in original_hypotheses:
+            hid = orig.get("hypothesis_id", "")
+            enriched = enriched_by_id.get(hid, {})
+            merged = {**orig}
+            for key in ("validation_status", "confirmation_summary", "adjustment_notes",
+                        "new_findings", "evidence_collected", "quantification_estimates",
+                        "recommended_use_cases"):
+                if enriched.get(key) not in (None, [], ""):
+                    merged[key] = enriched[key]
+            result.append(merged)
+
+        # Add any hypotheses found in analysis but not in originals
+        orig_ids = {h.get("hypothesis_id") for h in original_hypotheses}
+        for e in enriched_list:
+            if isinstance(e, dict) and e.get("hypothesis_id") not in orig_ids:
+                result.append(e)
+
+        print(f"[enrichment] enriched {len(result)} hypotheses")
+        return result
+    except Exception as ex:
+        print(f"[enrichment] failed: {ex}")
+        return original_hypotheses
+
+
 @app.post("/api/workshops/{workshop_id}/analysis")
 async def run_post_workshop_analysis(workshop_id: str, req: PostWorkshopAnalysisRequest):
     # Load workshop session
@@ -1939,20 +2039,27 @@ WORKSHOPKONVERSATION / TRANSKRIPT:
             # Save completed analysis to DB
             full_analysis = "".join(parts)
             now = datetime.now(timezone.utc).isoformat()
+
+            # Enrich hypotheses with structured data extracted from the analysis
+            orig_hyps = session.get("hypotheses", [])
+            enriched_hyps = _extract_hypothesis_enrichment(full_analysis, orig_hyps, client)
+
+            # Update session_json with enriched hypotheses
+            session["hypotheses"] = enriched_hyps
+            updated_session_json = json.dumps(session, ensure_ascii=False)
+
             con = sqlite3.connect(DB_PATH)
             con.execute(
-                "UPDATE workshop_sessions SET analysis_markdown=?, analysis_created_at=? WHERE id=?",
-                (full_analysis, now, workshop_id),
+                "UPDATE workshop_sessions SET analysis_markdown=?, analysis_created_at=?, session_json=? WHERE id=?",
+                (full_analysis, now, updated_session_json, workshop_id),
             )
-            # Persist hypotheses from session_json to scans.workshop_hypotheses so
-            # Data Lab can read them directly without falling back to regex extraction.
-            hyps = session.get("hypotheses", [])
-            if hyps and scan_id:
+            # Persist enriched hypotheses to scans.workshop_hypotheses for Data Lab
+            if enriched_hyps and scan_id:
                 con.execute(
                     "UPDATE scans SET workshop_hypotheses=? WHERE id=?",
-                    (json.dumps(hyps, ensure_ascii=False), scan_id),
+                    (json.dumps(enriched_hyps, ensure_ascii=False), scan_id),
                 )
-                print(f"[analysis] saved {len(hyps)} hypotheses to scans.workshop_hypotheses for scan {scan_id}")
+                print(f"[analysis] saved {len(enriched_hyps)} enriched hypotheses for scan {scan_id}")
             con.commit()
             con.close()
             print(f"[analysis] saved for workshop {workshop_id} ({len(full_analysis)} chars)")
@@ -2327,17 +2434,23 @@ WORKSHOPKONVERSATION / TRANSKRIPT:
                     yield text
             full_analysis = "".join(parts)
             now_ts = datetime.now(timezone.utc).isoformat()
+
+            # Enrich hypotheses with structured data extracted from the analysis
+            enriched_hyps = _extract_hypothesis_enrichment(full_analysis, hypotheses, client)
+
+            # Update session_json with enriched hypotheses
+            minimal["hypotheses"] = enriched_hyps
             con = sqlite3.connect(DB_PATH)
             con.execute(
-                "UPDATE workshop_sessions SET analysis_markdown=?, analysis_created_at=? WHERE id=?",
-                (full_analysis, now_ts, ws_id_for_save),
+                "UPDATE workshop_sessions SET analysis_markdown=?, analysis_created_at=?, session_json=? WHERE id=?",
+                (full_analysis, now_ts, json.dumps(minimal, ensure_ascii=False), ws_id_for_save),
             )
-            if hypotheses and scan_id:
+            if enriched_hyps and scan_id:
                 con.execute(
                     "UPDATE scans SET workshop_hypotheses=? WHERE id=?",
-                    (json.dumps(hypotheses, ensure_ascii=False), scan_id),
+                    (json.dumps(enriched_hyps, ensure_ascii=False), scan_id),
                 )
-                print(f"[scan-analysis] saved {len(hypotheses)} hypotheses to scans.workshop_hypotheses for scan {scan_id}")
+                print(f"[scan-analysis] saved {len(enriched_hyps)} enriched hypotheses for scan {scan_id}")
             con.commit()
             con.close()
             print(f"[scan-analysis] saved for scan {scan_id} via ws {ws_id_for_save} ({len(full_analysis)} chars)")
