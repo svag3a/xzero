@@ -1014,7 +1014,7 @@
 <header>
   <span class="logo">xZero</span>
   <div class="divider"></div>
-  <h1>Opportunity Scan Generator</h1>
+  <h1>Opportunity Orchestration</h1>
 </header>
 
 <main>
@@ -1343,7 +1343,7 @@
 </div>
 
 <footer>
-  Opportunity Scan Generator v2 &mdash; Powered by Claude
+  Opportunity Orchestration v2 &mdash; Powered by Claude
 </footer>
 
 <script>
@@ -3002,7 +3002,7 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Fel");
-      window.open(`/datalab/page?id=${data.id}`, "_blank");
+      window.location.href = `/datalab/page?id=${data.id}`;
       loadDataLabSessions();
     } catch(e) {
       alert("Kunde inte starta Data Lab: " + e.message);
@@ -3036,7 +3036,7 @@
             : '<span style="color:#d97706">Pågår</span>'}</td>
           <td style="padding:0.4rem 0.6rem;color:var(--text-muted)">${(s.created_at||"").slice(0,10)}</td>
           <td style="padding:0.4rem 0.6rem;white-space:nowrap">
-            <a href="/datalab/page?id=${s.id}" target="_blank"
+            <a href="/datalab/page?id=${s.id}"
                style="color:var(--accent);font-size:0.78rem;text-decoration:none;margin-right:0.75rem">Öppna &rarr;</a>
             <button onclick="deleteDataLabSession('${s.id}')"
                style="border:none;background:none;cursor:pointer;color:#9ca3af;font-size:0.85rem;padding:0;line-height:1"
