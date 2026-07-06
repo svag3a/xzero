@@ -2001,8 +2001,8 @@ def _extract_hypotheses_regex(text: str) -> list:
                         "data_requirements": [], "model_archetype": {}, "candidate_use_case": {}})
     if results:
         return results
-    # Format 2: "### H1 – Title" or "**H1:** Title" headings
-    for m in re.finditer(r'(?:###?\s+|(?<!\w))\*{0,2}(H\d+)\*{0,2}[:\s–-]+(.+)', text):
+    # Format 2: "### H1 – Title" headings — only at start of line to avoid inline refs
+    for m in re.finditer(r'^###?\s+(H\d+)[:\s–\-]+(.+)', text, re.MULTILINE):
         results.append({"hypothesis_id": m.group(1), "title": m.group(2).strip()[:300],
                         "data_requirements": [], "model_archetype": {}, "candidate_use_case": {}})
     return results
