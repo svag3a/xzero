@@ -1007,8 +1007,12 @@ function renderLineChart(containerId, dates, series) {
   }
 
   const paths = sampledSeries.map(s => {
-    const pts = s.values.map((v,i) => `${x(i)},${y(v)}`).join(" ");
-    return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="1.5"
+    let d = "";
+    s.values.forEach((v, i) => {
+      if (v == null) return;
+      d += (d === "" || s.values[i - 1] == null) ? `M${x(i)},${y(v)}` : `L${x(i)},${y(v)}`;
+    });
+    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="1.5"
       ${s.dash ? 'stroke-dasharray="4 3"' : ''} stroke-linejoin="round"/>`;
   }).join("");
 

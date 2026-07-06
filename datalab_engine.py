@@ -537,6 +537,8 @@ def run_replay(X: pd.DataFrame, y: pd.Series, dates, adapters: list[BaseAdapter]
                 "actual":    [round(float(v), 3) for v in y_test],
                 "predicted": [round(float(v), 3) for v in y_pred],
                 "dates":     [str(d)[:10] for d in dates.iloc[split:]],
+                "all_dates":  [str(d)[:10] for d in dates],
+                "all_actual": [round(float(v), 3) for v in y.values],
             }
         except Exception as e:
             results[adapter.name] = {"error": str(e)}

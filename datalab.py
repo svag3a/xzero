@@ -471,13 +471,20 @@ async def simulate(sid: str, body: dict):
     actual     = np.array(model_data["actual"])
     simulated  = apply_rule(predicted, rule_key)
 
+    # Use full history if available, else fall back to test-only
+    all_dates  = model_data.get("all_dates")  or model_data["dates"]
+    all_actual = model_data.get("all_actual") or [round(float(v), 3) for v in actual]
+    train_n    = len(all_dates) - len(model_data["dates"])
+    sim_padded = [None] * train_n + [round(float(v), 3) for v in simulated]
+    pred_padded = [None] * train_n + [round(float(v), 3) for v in predicted]
+
     sim = {
         "rule_key":   rule_key,
         "rule_label": SIMULATION_RULES[rule_key],
-        "dates":      model_data["dates"],
-        "actual":     [round(float(v), 3) for v in actual],
-        "predicted":  [round(float(v), 3) for v in predicted],
-        "simulated":  [round(float(v), 3) for v in simulated],
+        "dates":      all_dates,
+        "actual":     all_actual,
+        "predicted":  pred_padded,
+        "simulated":  sim_padded,
     }
     _update_session(sid, step=8, simulation=sim)
     return sim
