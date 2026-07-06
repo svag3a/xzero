@@ -3020,17 +3020,17 @@
       }
       el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:0.82rem">
         <thead><tr style="border-bottom:1px solid var(--border)">
-          <th style="text-align:left;padding:0.4rem 0.6rem;font-weight:600">ID</th>
           <th style="text-align:left;padding:0.4rem 0.6rem;font-weight:600">Bolag</th>
+          <th style="text-align:left;padding:0.4rem 0.6rem;font-weight:600">Hypotes</th>
           <th style="text-align:left;padding:0.4rem 0.6rem;font-weight:600">Steg</th>
           <th style="text-align:left;padding:0.4rem 0.6rem;font-weight:600">Status</th>
           <th style="text-align:left;padding:0.4rem 0.6rem;font-weight:600">Datum</th>
           <th style="padding:0.4rem 0.6rem"></th>
         </tr></thead>
         <tbody>${sessions.map(s => `<tr style="border-bottom:1px solid var(--border)">
-          <td style="padding:0.4rem 0.6rem;font-family:monospace">${s.id}</td>
-          <td style="padding:0.4rem 0.6rem">${s.company_name || "–"}</td>
-          <td style="padding:0.4rem 0.6rem">${s.step || 1} / 8</td>
+          <td style="padding:0.4rem 0.6rem;font-weight:500">${s.company_name || "–"}</td>
+          <td style="padding:0.4rem 0.6rem;color:var(--text-muted);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(s.hypothesis||"").replace(/"/g,"&quot;")}">${s.hypothesis || "–"}</td>
+          <td style="padding:0.4rem 0.6rem">${s.step || 1} / 9</td>
           <td style="padding:0.4rem 0.6rem">${s.status === "completed"
             ? '<span style="color:#059669;font-weight:600">✓ Klar</span>'
             : '<span style="color:#d97706">Pågår</span>'}</td>

@@ -228,7 +228,11 @@ async def datalab_page():
 async def list_sessions():
     con = _db()
     rows = con.execute(
-        "SELECT id, scan_id, hypothesis, step, status, created_at, updated_at FROM datalab_sessions ORDER BY created_at DESC"
+        """SELECT d.id, d.scan_id, d.hypothesis, d.step, d.status, d.created_at, d.updated_at,
+                  s.company_name
+           FROM datalab_sessions d
+           LEFT JOIN scans s ON s.id = d.scan_id
+           ORDER BY d.created_at DESC"""
     ).fetchall()
     con.close()
     return [dict(r) for r in rows]
