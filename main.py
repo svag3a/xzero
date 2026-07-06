@@ -5,6 +5,7 @@ import base64
 import json
 import sqlite3
 import asyncio
+import threading
 import subprocess
 import tempfile
 from datetime import datetime, timezone
@@ -2039,30 +2040,40 @@ WORKSHOPKONVERSATION / TRANSKRIPT:
             # Save completed analysis to DB
             full_analysis = "".join(parts)
             now = datetime.now(timezone.utc).isoformat()
-
-            # Enrich hypotheses with structured data extracted from the analysis
             orig_hyps = session.get("hypotheses", [])
-            enriched_hyps = _extract_hypothesis_enrichment(full_analysis, orig_hyps, client)
-
-            # Update session_json with enriched hypotheses
-            session["hypotheses"] = enriched_hyps
-            updated_session_json = json.dumps(session, ensure_ascii=False)
 
             con = sqlite3.connect(DB_PATH)
             con.execute(
-                "UPDATE workshop_sessions SET analysis_markdown=?, analysis_created_at=?, session_json=? WHERE id=?",
-                (full_analysis, now, updated_session_json, workshop_id),
+                "UPDATE workshop_sessions SET analysis_markdown=?, analysis_created_at=? WHERE id=?",
+                (full_analysis, now, workshop_id),
             )
-            # Persist enriched hypotheses to scans.workshop_hypotheses for Data Lab
-            if enriched_hyps and scan_id:
+            if orig_hyps and scan_id:
                 con.execute(
                     "UPDATE scans SET workshop_hypotheses=? WHERE id=?",
-                    (json.dumps(enriched_hyps, ensure_ascii=False), scan_id),
+                    (json.dumps(orig_hyps, ensure_ascii=False), scan_id),
                 )
-                print(f"[analysis] saved {len(enriched_hyps)} enriched hypotheses for scan {scan_id}")
             con.commit()
             con.close()
             print(f"[analysis] saved for workshop {workshop_id} ({len(full_analysis)} chars)")
+
+            # Enrich hypotheses in background — don't block the HTTP response
+            def _bg_enrich():
+                enriched = _extract_hypothesis_enrichment(full_analysis, orig_hyps, client)
+                session["hypotheses"] = enriched
+                c = sqlite3.connect(DB_PATH)
+                c.execute(
+                    "UPDATE workshop_sessions SET session_json=? WHERE id=?",
+                    (json.dumps(session, ensure_ascii=False), workshop_id),
+                )
+                if enriched and scan_id:
+                    c.execute(
+                        "UPDATE scans SET workshop_hypotheses=? WHERE id=?",
+                        (json.dumps(enriched, ensure_ascii=False), scan_id),
+                    )
+                c.commit()
+                c.close()
+                print(f"[analysis] bg enrichment done for workshop {workshop_id}")
+            threading.Thread(target=_bg_enrich, daemon=True).start()
 
             # Update Opportunity Graph with nodes extracted from analysis
             try:
@@ -2435,25 +2446,38 @@ WORKSHOPKONVERSATION / TRANSKRIPT:
             full_analysis = "".join(parts)
             now_ts = datetime.now(timezone.utc).isoformat()
 
-            # Enrich hypotheses with structured data extracted from the analysis
-            enriched_hyps = _extract_hypothesis_enrichment(full_analysis, hypotheses, client)
-
-            # Update session_json with enriched hypotheses
-            minimal["hypotheses"] = enriched_hyps
             con = sqlite3.connect(DB_PATH)
             con.execute(
-                "UPDATE workshop_sessions SET analysis_markdown=?, analysis_created_at=?, session_json=? WHERE id=?",
-                (full_analysis, now_ts, json.dumps(minimal, ensure_ascii=False), ws_id_for_save),
+                "UPDATE workshop_sessions SET analysis_markdown=?, analysis_created_at=? WHERE id=?",
+                (full_analysis, now_ts, ws_id_for_save),
             )
-            if enriched_hyps and scan_id:
+            if hypotheses and scan_id:
                 con.execute(
                     "UPDATE scans SET workshop_hypotheses=? WHERE id=?",
-                    (json.dumps(enriched_hyps, ensure_ascii=False), scan_id),
+                    (json.dumps(hypotheses, ensure_ascii=False), scan_id),
                 )
-                print(f"[scan-analysis] saved {len(enriched_hyps)} enriched hypotheses for scan {scan_id}")
             con.commit()
             con.close()
             print(f"[scan-analysis] saved for scan {scan_id} via ws {ws_id_for_save} ({len(full_analysis)} chars)")
+
+            # Enrich hypotheses in background — don't block the HTTP response
+            def _bg_enrich():
+                enriched = _extract_hypothesis_enrichment(full_analysis, hypotheses, client)
+                minimal["hypotheses"] = enriched
+                c = sqlite3.connect(DB_PATH)
+                c.execute(
+                    "UPDATE workshop_sessions SET session_json=? WHERE id=?",
+                    (json.dumps(minimal, ensure_ascii=False), ws_id_for_save),
+                )
+                if enriched and scan_id:
+                    c.execute(
+                        "UPDATE scans SET workshop_hypotheses=? WHERE id=?",
+                        (json.dumps(enriched, ensure_ascii=False), scan_id),
+                    )
+                c.commit()
+                c.close()
+                print(f"[scan-analysis] bg enrichment done for scan {scan_id}")
+            threading.Thread(target=_bg_enrich, daemon=True).start()
         except Exception as e:
             yield f"\n\n**Fel vid analys:** {e}"
 
