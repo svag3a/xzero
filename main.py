@@ -2107,34 +2107,34 @@ async def get_scan_hypotheses_for_datalab(scan_id: int):
         except Exception:
             pass
 
-    # 3. Extract from workshop analysis markdown (Bedrock)
+    # 3. Regex parser — instant, no AI needed, works on any markdown with "Hypotes" sections
+    if not hypotheses:
+        for text in filter(None, [
+            ws_row["analysis_markdown"] if ws_row else None,
+            scan_row["report_markdown"],
+        ]):
+            hypotheses = _extract_hypotheses_regex(text)
+            if hypotheses:
+                break
+
+    # 4. Extract from workshop analysis markdown (Bedrock) — slow AI fallback
     if not hypotheses and ws_row and ws_row["analysis_markdown"]:
         hypotheses = await asyncio.to_thread(
             _extract_hypotheses_from_report, ws_row["analysis_markdown"]
         )
 
-    # 4. Extract from original scan report (Bedrock)
+    # 5. Extract from original scan report (Bedrock) — slow AI fallback
     if not hypotheses and scan_row["report_markdown"]:
         hypotheses = await asyncio.to_thread(
             _extract_hypotheses_from_report, scan_row["report_markdown"]
         )
 
-    # 5. Extract using direct Anthropic client (fallback when Bedrock unavailable)
+    # 6. Extract using direct Anthropic client (last resort when Bedrock unavailable)
     if not hypotheses:
         text = (ws_row["analysis_markdown"] if ws_row and ws_row["analysis_markdown"]
                 else scan_row["report_markdown"] or "")
         if text:
             hypotheses = await _extract_hypotheses_direct(text)
-
-    # 6. Regex parser — no Claude needed, always works
-    if not hypotheses:
-        for text in filter(None, [
-            scan_row["report_markdown"],
-            ws_row["analysis_markdown"] if ws_row else None,
-        ]):
-            hypotheses = _extract_hypotheses_regex(text)
-            if hypotheses:
-                break
 
     return [
         {
