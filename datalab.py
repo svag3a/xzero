@@ -592,7 +592,9 @@ def _simulation_svg(actual: list, simulated: list, max_pts: int = 300) -> str:
 
     W, H, PL, PR, PT, PB = 800, 220, 60, 20, 20, 40
     cw, ch = W - PL - PR, H - PT - PB
-    all_v  = act + sim
+    all_v  = [v for v in act + sim if v is not None]
+    if not all_v:
+        return ""
     lo, hi = min(all_v), max(all_v)
     rng    = hi - lo or 1
 
@@ -616,7 +618,7 @@ def _simulation_svg(actual: list, simulated: list, max_pts: int = 300) -> str:
                     f'font-size="9" fill="#94a3b8">{idx[i]}</text>')
 
     def polyline(vals, color, dash=""):
-        pts = " ".join(f"{px(i):.1f},{py(v):.1f}" for i, v in enumerate(vals))
+        pts = " ".join(f"{px(i):.1f},{py(v):.1f}" for i, v in enumerate(vals) if v is not None)
         da  = f'stroke-dasharray="{dash}"' if dash else ""
         return (f'<polyline points="{pts}" fill="none" stroke="{color}" '
                 f'stroke-width="1.8" {da} stroke-linejoin="round"/>')
