@@ -575,8 +575,12 @@ def apply_rule(predicted: np.ndarray, rule: str) -> np.ndarray:
 # ── ELIR calculation ──────────────────────────────────────────────────────────
 
 def calculate_elir(actual: list, simulated: list) -> dict:
-    a = np.array(actual, dtype=float)
-    s = np.array(simulated, dtype=float)
+    # Drop pairs where simulated is None (train-period padding)
+    pairs = [(av, sv) for av, sv in zip(actual, simulated) if sv is not None]
+    if not pairs:
+        return {"error": "Inga giltiga simuleringspunkter"}
+    a = np.array([p[0] for p in pairs], dtype=float)
+    s = np.array([p[1] for p in pairs], dtype=float)
 
     mae_baseline = float(np.abs(a - a.mean()).mean())
     mae_model    = float(np.abs(a - s).mean())
