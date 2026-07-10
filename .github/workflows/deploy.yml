@@ -16,7 +16,8 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
-            docker system prune -af --volumes
+            docker image prune -af
+            docker builder prune -af
             cd /opt/opportunity-scan
             git pull origin main
             docker compose build --no-cache

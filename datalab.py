@@ -916,7 +916,7 @@ ul li{{margin-bottom:.25rem;font-size:.93rem}}
 {uc_section}
 
 </div>
-<button class="print-btn" onclick="window.print()">Skriv ut / Spara PDF</button>
+<button class="print-btn" onclick="window.location.href='/api/datalab/{sess.get('id','')}/report.pdf'">Ladda ner PDF</button>
 </body>
 </html>"""
 
@@ -933,3 +933,165 @@ async def get_report_html(sid: str):
         import traceback
         tb = traceback.format_exc()
         return HTMLResponse(f"<pre style='color:red;padding:2rem'>{tb}</pre>", status_code=500)
+
+
+def _datalab_report_markdown(sess: dict) -> str:
+    from datetime import date as _date
+
+    company   = sess.get("company_name") or "Okänt bolag"
+    hyp_title = sess.get("hypothesis") or ""
+    generated = _date.today().strftime("%d %B %Y").lstrip("0")
+    target    = sess.get("target_col") or ""
+
+    meta   = sess.get("dataset_meta") or {}
+    bench  = sess.get("benchmark")    or {}
+    sim    = sess.get("simulation")   or {}
+    elir   = sess.get("elir")         or {}
+
+    i_pct     = elir.get("i_pct", 0)
+    acc_gain  = elir.get("accuracy_gain", 0)
+    mae_base  = elir.get("mae_baseline", 0)
+    mae_model = elir.get("mae_model", 0)
+    n_samples = elir.get("n_samples", 0)
+    vol_diff  = elir.get("volume_diff_pct", 0)
+    narrative = elir.get("narrative", "")
+    rule      = sim.get("rule_label", "")
+
+    def fmt(v, d=1):
+        if not isinstance(v, (int, float)):
+            return str(v) if v else "-"
+        return f"{v:.{d}f}"
+
+    lines = []
+
+    # ── Rubrik ───────────────────────────────────────────────────────────────
+    lines.append(f"# Data Lab – {company}")
+    if hyp_title:
+        lines.append(f"{hyp_title}  ·  {generated}")
+    lines.append("")
+
+    # ── ELIR-resultat ────────────────────────────────────────────────────────
+    lines.append("## ELIR-resultat")
+    lines.append("")
+    lines.append(f"| Matt | Varde |")
+    lines.append(f"|------|-------|")
+    lines.append(f"| I-faktor | **{fmt(i_pct)} %** |")
+    lines.append(f"| Noggrannhetsvinst | {fmt(acc_gain)} % |")
+    lines.append(f"| MAE Baseline | {fmt(mae_base, 3)} |")
+    lines.append(f"| MAE Modell (sim) | {fmt(mae_model, 3)} |")
+    lines.append(f"| Volymavvikelse | {fmt(vol_diff)} % |")
+    lines.append(f"| Testpunkter (n) | {n_samples} |")
+    if rule:
+        lines.append(f"| Simuleringsregel | {rule} |")
+    lines.append("")
+
+    if narrative:
+        lines.append(f"> {narrative}")
+        lines.append("")
+
+    lines.append("> **Om matten:** I-faktor = noggrannhetsvinst x R-faktor — central matt pa affarsvarde. "
+                 "Noggrannhetsvinst = (MAE_baseline - MAE_modell) / MAE_baseline. "
+                 "MAE baseline = naiv medelvarde-prediktion. "
+                 "MAE modell = Mean Absolute Error pa testdata (30 % av dataset). "
+                 "Volymavvikelse = procentuell skillnad total volym simulerat vs faktiskt.")
+    lines.append("")
+
+    # ── Dataset & modellering ────────────────────────────────────────────────
+    lines.append("## Dataset och modellering")
+    lines.append("")
+    rows_n  = meta.get("rows", "-")
+    cols_n  = meta.get("cols", "-")
+    dt_from = str(meta.get("date_from") or meta.get("date_min",""))[:10] or "-"
+    dt_to   = str(meta.get("date_to")   or meta.get("date_max",""))[:10] or "-"
+    train_r = bench.get("train_rows", "-")
+    test_r  = bench.get("test_rows", "-")
+
+    lines.append(f"| Parameter | Varde |")
+    lines.append(f"|-----------|-------|")
+    lines.append(f"| Rader | {rows_n} |")
+    lines.append(f"| Kolumner | {cols_n} |")
+    lines.append(f"| Period | {dt_from} - {dt_to} |")
+    lines.append(f"| Malvariabel | {target} |")
+    lines.append(f"| Traningsrader | {train_r} |")
+    lines.append(f"| Testrader | {test_r} |")
+    lines.append("")
+
+    models     = bench.get("models", {})
+    best_model = bench.get("best_model", "")
+    if models:
+        lines.append("### Modellbenchmark")
+        lines.append("")
+        lines.append("| Modell | MAE | RMSE | R2 | Bias |")
+        lines.append("|--------|-----|------|----|------|")
+        for mname, m in (models.items() if isinstance(models, dict) else []):
+            star  = "* " if mname == best_model else ""
+            err   = m.get("error")
+            if err:
+                lines.append(f"| {star}{mname} | Fel: {str(err)[:60]} | | | |")
+            else:
+                me = m.get("metrics", {})
+                lines.append(f"| {star}{mname} | {fmt(me.get('mae'))} | {fmt(me.get('rmse'))} | {fmt(me.get('r2'))} | {fmt(me.get('bias'))} |")
+        lines.append("")
+
+    # ── Hypotesvalidering ────────────────────────────────────────────────────
+    hyp_j = sess.get("hypothesis_json")
+    if isinstance(hyp_j, str):
+        try: hyp_j = json.loads(hyp_j)
+        except Exception: hyp_j = {}
+    hyp_j = hyp_j or {}
+
+    vs_label = {
+        "confirmed": "Bekraftad",
+        "confirmed_adjusted": "Bekraftad med justering",
+        "partially_confirmed": "Delvis bekraftad",
+        "rejected": "Avvisad",
+    }
+    vs   = hyp_j.get("validation_status", "")
+    conf = hyp_j.get("confirmation_summary", "")
+    adj  = hyp_j.get("adjustment_notes", "")
+    if conf or vs:
+        lines.append("## Hypotesvalidering")
+        lines.append("")
+        if vs:
+            lines.append(f"**Status:** {vs_label.get(vs, vs)}")
+            lines.append("")
+        if conf:
+            lines.append(conf)
+            lines.append("")
+        if adj:
+            lines.append(f"**Justering:** {adj}")
+            lines.append("")
+
+    lines.append("")
+    lines.append("---")
+    lines.append("*xZero Data Lab – Analysrapport*")
+
+    return "\n".join(lines)
+
+
+@router.get("/api/datalab/{sid}/report.pdf")
+async def get_report_pdf(sid: str):
+    from main import OpportunityScanPDF
+    from fastapi.responses import Response as _R
+    import re as _re
+
+    sess = _get_session(sid)
+    if not sess.get("elir"):
+        raise HTTPException(400, "ELIR-beräkning saknas – slutfor steg 9 forst")
+    try:
+        md  = _datalab_report_markdown(sess)
+        pdf = OpportunityScanPDF()
+        pdf.render(md)
+        pdf_bytes = bytes(pdf.output())
+    except Exception as exc:
+        import traceback; traceback.print_exc()
+        raise HTTPException(500, f"PDF-generering misslyckades: {exc}")
+
+    company  = sess.get("company_name") or "datalab"
+    safe     = _re.sub(r'[^\w\-]', '-', company)[:40]
+    filename = f"datalab-{safe}.pdf"
+    return _R(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
