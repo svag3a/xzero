@@ -584,6 +584,13 @@ def _e(s):
             .replace(">","&gt;").replace('"',"&quot;"))
 
 
+def _fmt(v, d=1):
+    """Format a numeric value to d decimals; return '–' for non-numeric."""
+    if not isinstance(v, (int, float)):
+        return str(v) if v else "–"
+    return f"{v:.{d}f}"
+
+
 def _simulation_svg(actual: list, simulated: list, max_pts: int = 300) -> str:
     """Generate an inline SVG line chart of actual vs simulated."""
     import math
@@ -632,14 +639,14 @@ def _simulation_svg(actual: list, simulated: list, max_pts: int = 300) -> str:
     note = f'<text x="{W-PR}" y="{PT-6}" text-anchor="end" font-size="9" fill="#94a3b8">Visar {m} av {n} punkter</text>' if n > max_pts else ""
 
     return f"""<svg viewBox="0 0 {W} {H+10}" style="width:100%;display:block">
+  <rect x="{PL}" y="{PT-14}" width="10" height="3" fill="#94a3b8" rx="1"/>
+  <text x="{PL+14}" y="{PT-9}" font-size="10" fill="#64748b">Faktiskt utfall</text>
+  <rect x="{PL+110}" y="{PT-14}" width="10" height="3" fill="#2563eb" rx="1"/>
+  <text x="{PL+124}" y="{PT-9}" font-size="10" fill="#64748b">Simulerat</text>
   {note}{grid}
   <line x1="{PL}" y1="{PT}" x2="{PL}" y2="{PT+ch}" stroke="#e2e8f0"/>
   {polyline(act, "#94a3b8", "4 3")}
   {polyline(sim, "#2563eb")}
-  <rect x="{PL}" y="{H-8}" width="10" height="3" fill="#94a3b8" rx="1"/>
-  <text x="{PL+14}" y="{H-3}" font-size="10" fill="#64748b">Faktiskt utfall</text>
-  <rect x="{PL+100}" y="{H-8}" width="10" height="3" fill="#2563eb" rx="1"/>
-  <text x="{PL+114}" y="{H-3}" font-size="10" fill="#64748b">Simulerat</text>
 </svg>"""
 
 
@@ -686,11 +693,11 @@ def _datalab_report_html(sess: dict) -> str:
             me = m.get("metrics", {})
             bench_rows += (f'<tr{tr_class}>'
                            f'<td><strong>{is_b}</strong>{_e(model_name)}</td>'
-                           f'<td>{me.get("mae", dash)}</td>'
-                           f'<td>{me.get("rmse", dash)}</td>'
-                           f'<td>{me.get("r2", dash)}</td>'
-                           f'<td>{me.get("mape", dash) if me.get("mape") is not None else dash}</td>'
-                           f'<td>{me.get("bias", dash)}</td></tr>')
+                           f'<td>{_fmt(me.get("mae"))}</td>'
+                           f'<td>{_fmt(me.get("rmse"))}</td>'
+                           f'<td>{_fmt(me.get("r2"))}</td>'
+                           f'<td>{_fmt(me.get("mape")) if me.get("mape") is not None else dash}</td>'
+                           f'<td>{_fmt(me.get("bias"))}</td></tr>')
 
     # ── Simulation chart ──────────────────────────────────────────────────────
     chart_svg = ""
@@ -787,6 +794,10 @@ def _datalab_report_html(sess: dict) -> str:
     train_r = bench.get("train_rows","–")
     test_r  = bench.get("test_rows","–")
 
+    vol_str   = (_fmt(vol_diff) + " %") if isinstance(vol_diff, (int, float)) else "–"
+    i_str     = (_fmt(i_pct)   + " %") if isinstance(i_pct,   (int, float)) else "–"
+    acc_str   = (_fmt(acc_gain)+ " %") if isinstance(acc_gain,(int, float)) else "–"
+
     return f"""<!DOCTYPE html>
 <html lang="sv">
 <head>
@@ -796,55 +807,62 @@ def _datalab_report_html(sess: dict) -> str:
 <style>
 *,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
 :root{{
-  --navy:#0f1f3d;--blue:#2563eb;--green:#10b981;--amber:#f59e0b;
+  --navy:#1a3a5c;--blue:#2563eb;--green:#10b981;--amber:#f59e0b;
   --red:#ef4444;--text:#1e293b;--muted:#64748b;--border:#e2e8f0;
-  --bg:#f8fafc;--card:#fff;
+  --bg:#f8fafc;--card:#fff;--accent-light:#e8eef4;
 }}
-body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
   color:var(--text);background:var(--bg);font-size:15px;line-height:1.6}}
 .page{{max-width:920px;margin:0 auto;padding:2rem 1.5rem 4rem}}
-header{{background:var(--navy);color:#fff;padding:2rem 2.5rem;border-radius:12px;margin-bottom:2rem}}
-header .eyebrow{{font-size:0.75rem;letter-spacing:.08em;text-transform:uppercase;
-  color:rgba(255,255,255,.55);margin-bottom:.4rem}}
-header h1{{font-size:1.6rem;font-weight:700;line-height:1.2}}
-header .sub{{margin-top:.4rem;color:rgba(255,255,255,.65);font-size:.9rem}}
-section{{background:var(--card);border:1px solid var(--border);border-radius:10px;
+header{{background:var(--navy);color:#fff;padding:2rem 2.5rem;border-radius:10px;margin-bottom:2rem}}
+header .eyebrow{{font-size:0.72rem;letter-spacing:.1em;text-transform:uppercase;
+  color:rgba(255,255,255,.5);margin-bottom:.35rem}}
+header h1{{font-size:1.65rem;font-weight:700;line-height:1.2}}
+header .sub{{margin-top:.4rem;color:rgba(255,255,255,.6);font-size:.88rem}}
+section{{background:var(--card);border:1px solid var(--border);border-radius:8px;
   padding:1.5rem 2rem;margin-bottom:1.5rem}}
-section h2{{font-size:1rem;font-weight:700;color:var(--navy);text-transform:uppercase;
-  letter-spacing:.06em;margin-bottom:1.2rem;padding-bottom:.6rem;border-bottom:2px solid var(--border)}}
-section h3{{font-size:1rem;font-weight:600;margin-bottom:.5rem}}
-section h4{{font-size:.85rem;font-weight:600;color:var(--muted);text-transform:uppercase;
-  letter-spacing:.05em;margin-bottom:.5rem}}
-p{{margin-bottom:.6rem;color:var(--text)}}
-ul{{padding-left:1.25rem;margin-bottom:.5rem}}
-ul li{{margin-bottom:.2rem}}
-.elir-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem;margin-bottom:1.25rem}}
-.elir-card{{background:var(--bg);border-radius:8px;padding:1rem;text-align:center}}
-.elir-card .val{{font-size:2rem;font-weight:800;line-height:1}}
-.elir-card .lbl{{font-size:.75rem;color:var(--muted);margin-top:.25rem;text-transform:uppercase;letter-spacing:.05em}}
+section h2{{font-size:0.78rem;font-weight:700;color:var(--navy);text-transform:uppercase;
+  letter-spacing:.1em;margin-bottom:1.2rem;padding-bottom:.55rem;border-bottom:2px solid var(--border)}}
+section h3{{font-size:1rem;font-weight:600;color:var(--navy);margin-bottom:.5rem}}
+section h4{{font-size:.82rem;font-weight:600;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:.5rem}}
+p{{margin-bottom:.65rem;color:var(--text);font-size:.95rem}}
+ul{{padding-left:1.25rem;margin-bottom:.6rem}}
+ul li{{margin-bottom:.25rem;font-size:.93rem}}
+.elir-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.875rem;margin-bottom:1.25rem}}
+.elir-card{{background:var(--accent-light);border-radius:6px;padding:.9rem 1rem;text-align:center}}
+.elir-card .val{{font-size:1.8rem;font-weight:800;line-height:1;letter-spacing:-.02em}}
+.elir-card .lbl{{font-size:.7rem;color:var(--muted);margin-top:.3rem;text-transform:uppercase;letter-spacing:.06em}}
 .elir-card.accent .val{{color:var(--blue)}}
 .elir-card.good   .val{{color:var(--green)}}
-.narrative{{background:#f0f9ff;border-left:3px solid var(--blue);padding:.75rem 1rem;
-  border-radius:0 8px 8px 0;font-size:.9rem;color:var(--text);white-space:pre-wrap}}
-.stat-row{{display:flex;flex-wrap:wrap;gap:1.5rem;margin-bottom:1rem}}
+.narrative{{background:var(--accent-light);border-left:3px solid var(--navy);padding:.7rem 1rem;
+  border-radius:0 4px 4px 0;font-size:.9rem;color:var(--text);white-space:pre-wrap;margin-top:1rem}}
+.callout{{background:#f0f4f8;border-left:3px solid var(--navy);padding:.65rem 1rem;
+  border-radius:0 4px 4px 0;margin-top:1.1rem}}
+.callout strong{{display:block;font-size:.78rem;text-transform:uppercase;letter-spacing:.07em;
+  color:var(--navy);margin-bottom:.5rem}}
+.callout table{{border-collapse:collapse;width:100%}}
+.callout td{{padding:.25rem .4rem;font-size:.83rem;color:#3a3a3a;vertical-align:top;border:none}}
+.callout td:first-child{{white-space:nowrap;font-weight:600;padding-right:.75rem;width:11rem}}
+.stat-row{{display:flex;flex-wrap:wrap;gap:1.5rem;margin-bottom:1.1rem}}
 .stat{{display:flex;flex-direction:column}}
-.stat .v{{font-size:1.1rem;font-weight:700}}
-.stat .k{{font-size:.78rem;color:var(--muted)}}
+.stat .v{{font-size:1.05rem;font-weight:700}}
+.stat .k{{font-size:.75rem;color:var(--muted)}}
 .data-table{{width:100%;border-collapse:collapse;font-size:.85rem}}
-.data-table th{{background:var(--bg);text-align:left;padding:.5rem .75rem;
-  font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;
+.data-table th{{background:var(--accent-light);text-align:left;padding:.5rem .75rem;
+  font-size:.73rem;color:var(--navy);text-transform:uppercase;letter-spacing:.05em;
   border-bottom:2px solid var(--border)}}
 .data-table td{{padding:.5rem .75rem;border-bottom:1px solid var(--border);vertical-align:top}}
 .data-table .best-row td{{background:#eff6ff}}
-.chart-wrap{{overflow-x:auto;margin-top:.5rem}}
-.detail-block{{background:var(--bg);border-radius:8px;padding:.875rem 1rem;margin-bottom:.75rem}}
-.uc-card{{border:1px solid var(--border);border-radius:8px;padding:1rem 1.25rem;margin-bottom:1rem}}
+.chart-wrap{{overflow-x:auto;margin-top:.75rem}}
+.detail-block{{background:var(--accent-light);border-radius:6px;padding:.875rem 1rem;margin-bottom:.75rem}}
+.uc-card{{border:1px solid var(--border);border-radius:6px;padding:1rem 1.25rem;margin-bottom:1rem}}
 .uc-head{{display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem;flex-wrap:wrap}}
-.uc-module{{background:var(--navy);color:#fff;font-size:.72rem;font-weight:700;
+.uc-module{{background:var(--navy);color:#fff;font-size:.7rem;font-weight:700;
   padding:2px 8px;border-radius:20px;letter-spacing:.04em}}
-.print-btn{{position:fixed;bottom:1.5rem;right:1.5rem;background:var(--blue);color:#fff;
-  border:none;padding:.65rem 1.25rem;border-radius:8px;cursor:pointer;font-size:.9rem;
-  font-weight:600;box-shadow:0 4px 12px rgba(37,99,235,.35)}}
+.print-btn{{position:fixed;bottom:1.5rem;right:1.5rem;background:var(--navy);color:#fff;
+  border:none;padding:.65rem 1.25rem;border-radius:6px;cursor:pointer;font-size:.88rem;
+  font-weight:600;box-shadow:0 4px 14px rgba(26,58,92,.3)}}
 @media print{{
   .print-btn{{display:none}}
   body{{background:#fff}}
@@ -866,14 +884,25 @@ ul li{{margin-bottom:.2rem}}
 <section>
   <h2>ELIR-resultat</h2>
   <div class="elir-grid">
-    <div class="elir-card good"><div class="val">{i_pct}%</div><div class="lbl">I-faktor</div></div>
-    <div class="elir-card accent"><div class="val">{acc_gain}%</div><div class="lbl">Noggrannhetsvinst</div></div>
-    <div class="elir-card"><div class="val">{f"{mae_base:.3f}" if isinstance(mae_base, (int,float)) else mae_base}</div><div class="lbl">MAE Baseline</div></div>
-    <div class="elir-card"><div class="val">{f"{mae_model:.3f}" if isinstance(mae_model, (int,float)) else mae_model}</div><div class="lbl">MAE Modell</div></div>
-    <div class="elir-card"><div class="val">{f"{n_samples:,}" if isinstance(n_samples, int) else n_samples}</div><div class="lbl">Testpunkter</div></div>
-    <div class="elir-card"><div class="val">{_e(conf)}</div><div class="lbl">Konfidens</div></div>
+    <div class="elir-card good"><div class="val">{i_str}</div><div class="lbl">I-faktor</div></div>
+    <div class="elir-card accent"><div class="val">{acc_str}</div><div class="lbl">Noggrannhetsvinst</div></div>
+    <div class="elir-card"><div class="val">{_fmt(mae_base)}</div><div class="lbl">MAE Baseline</div></div>
+    <div class="elir-card"><div class="val">{_fmt(mae_model)}</div><div class="lbl">MAE Modell (sim)</div></div>
+    <div class="elir-card"><div class="val">{vol_str}</div><div class="lbl">Volymavvikelse</div></div>
+    <div class="elir-card"><div class="val">{n_samples if isinstance(n_samples, int) else "–"}</div><div class="lbl">Testpunkter (n)</div></div>
   </div>
   {f'<div class="narrative">{narrative}</div>' if narrative else ''}
+  <div class="callout">
+    <strong>Om måtten</strong>
+    <table><tbody>
+      <tr><td>I-faktor</td><td>Andel av förbättringspotentialen som modellen realiserar. Beräknas som noggrannhetsvinst × R-faktor och är det centrala måttet på affärsvärde.</td></tr>
+      <tr><td>Noggrannhetsvinst</td><td>Relativ förbättring i prediktionsnoggrannhet jämfört med en naiv basmodell (medelvärdesförutsägelse): (MAE<sub>baseline</sub> − MAE<sub>modell</sub>) / MAE<sub>baseline</sub>.</td></tr>
+      <tr><td>MAE baseline</td><td>Mean Absolute Error för en naiv modell som alltid förutsäger medelvärdet. Referenspunkt för hur bra man gör utan AI.</td></tr>
+      <tr><td>MAE modell (sim)</td><td>Mean Absolute Error för den bästa tränade modellen på testdata. Lägre är bättre; jämför alltid mot baseline.</td></tr>
+      <tr><td>Volymavvikelse</td><td>Procentuell skillnad i total volym mellan simulerat och faktiskt utfall. Visar om modellen systematiskt över- eller underestimerar.</td></tr>
+      <tr><td>Testpunkter (n)</td><td>Antal datapunkter i testmängden (30 % av dataset). Fler testpunkter ger mer tillförlitliga mätvärden.</td></tr>
+    </tbody></table>
+  </div>
 </section>
 
 {hyp_section}
