@@ -492,38 +492,44 @@ async def simulate(sid: str, body: dict):
 
 @router.post("/api/datalab/{sid}/elir")
 async def elir(sid: str):
-    sess = _get_session(sid)
-    sim  = sess.get("simulation")
-    if not sim:
-        raise HTTPException(400, "Kör simulering först")
+    import traceback as _tb
+    try:
+        sess = _get_session(sid)
+        sim  = sess.get("simulation")
+        if not sim:
+            raise HTTPException(400, "Kör simulering först")
 
-    elir_result = calculate_elir(sim["actual"], sim["simulated"])
+        elir_result = calculate_elir(sim["actual"], sim["simulated"])
+        if "error" in elir_result:
+            raise HTTPException(400, elir_result["error"])
 
-    # Claude narrative
-    scan_info = {"company_name": sess.get("company_name",""), "hypothesis": sess.get("hypothesis","")}
-    narrative = await _claude_elir_narrative(
-        elir_result, scan_info,
-        sess.get("target_col","?"), sim.get("rule_label","")
-    )
-    elir_result["narrative"] = narrative
+        scan_info = {"company_name": sess.get("company_name",""), "hypothesis": sess.get("hypothesis","")}
+        narrative = await _claude_elir_narrative(
+            elir_result, scan_info,
+            sess.get("target_col","?"), sim.get("rule_label","")
+        )
+        elir_result["narrative"] = narrative
 
-    # Optionally save I-factor back to linked scan
-    scan_id = sess.get("scan_id")
-    if scan_id:
-        try:
-            con = _db()
-            con.execute(
-                "UPDATE scans SET i_pct=? WHERE id=?",
-                (round(elir_result["i_pct"], 1), scan_id)
-            )
-            con.commit()
-            con.close()
-            elir_result["saved_to_scan"] = True
-        except Exception:
-            elir_result["saved_to_scan"] = False
+        scan_id = sess.get("scan_id")
+        if scan_id:
+            try:
+                con = _db()
+                con.execute(
+                    "UPDATE scans SET i_pct=? WHERE id=?",
+                    (round(elir_result["i_pct"], 1), scan_id)
+                )
+                con.commit()
+                con.close()
+                elir_result["saved_to_scan"] = True
+            except Exception:
+                elir_result["saved_to_scan"] = False
 
-    _update_session(sid, step=9, status="completed", elir=elir_result)
-    return elir_result
+        _update_session(sid, step=9, status="completed", elir=elir_result)
+        return elir_result
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(500, f"ELIR-fel: {_tb.format_exc()}")
 
 
 @router.post("/api/datalab/{sid}/forecast")
