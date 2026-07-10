@@ -492,7 +492,23 @@ async def simulate(sid: str, body: dict):
 
 @router.post("/api/datalab/{sid}/elir")
 async def elir(sid: str):
-    return {"diag": "route_reached", "sid": sid}
+    sess = _get_session(sid)
+    sim  = sess.get("simulation") or {}
+    if not sim.get("actual") or not sim.get("simulated"):
+        raise HTTPException(400, "Kör simulering först (steg 7)")
+
+    result = calculate_elir(sim["actual"], sim["simulated"])
+    if "error" in result:
+        raise HTTPException(400, result["error"])
+
+    scan_info = {"company_name": sess.get("company_name",""), "hypothesis": sess.get("hypothesis","")}
+    target    = sess.get("target_col","")
+    rule      = sim.get("rule_label","")
+    narrative = await _claude_elir_narrative(result, scan_info, target, rule)
+    result["narrative"] = narrative
+
+    _update_session(sid, step=9, elir=result)
+    return result
 
 
 @router.post("/api/datalab/{sid}/forecast")
