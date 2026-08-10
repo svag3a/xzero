@@ -495,7 +495,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     <div id="elir-result" style="display:none">
       <div class="elir-hero">
         <div class="elir-i" id="elir-i">–</div>
-        <div class="elir-label">Uppskattad I-faktor</div>
+        <div class="elir-label" id="elir-i-label">Prediktionsförbättring</div>
         <div class="elir-conf" id="elir-conf">–</div>
       </div>
       <div class="card">
@@ -1109,19 +1109,25 @@ function renderElir(data) {
   document.getElementById("elir-loading").style.display = "none";
   document.getElementById("elir-result").style.display  = "block";
 
-  document.getElementById("elir-i").textContent    = (data.i_pct ?? "–") + "%";
+  const hasI = data.i_pct != null;
+  document.getElementById("elir-i").textContent = hasI ? (data.i_pct + "%") : (data.accuracy_gain + "%");
+  document.getElementById("elir-i-label").textContent  = hasI ? "Indikativ I-faktor" : "Prediktionsförbättring";
   const confEl = document.getElementById("elir-conf");
   confEl.textContent  = "Konfidens: " + (data.confidence || "–");
   confEl.className    = `elir-conf ${data.confidence || ""}`;
   document.getElementById("elir-narrative").textContent = data.narrative || "–";
 
-  document.getElementById("elir-stats").innerHTML = [
-    ["Noggrannhetsvinst", (data.accuracy_gain ?? "–") + "%"],
-    ["MAE baseline",      data.mae_baseline ?? "–"],
-    ["MAE modell (sim)",  data.mae_model    ?? "–"],
-    ["Volymavvikelse",    (data.volume_diff_pct ?? "–") + "%"],
-    ["Testpunkter (n)",   data.n_samples ?? "–"],
-  ].map(([l,v]) => `<div class="stat-box">
+  const stats = [
+    ["Prediktionsförbättring", (data.accuracy_gain ?? "–") + "%"],
+  ];
+  if (hasI) stats.push(["R-faktor (från scan)", (data.r_pct_used ?? "–") + "%"]);
+  stats.push(
+    ["MAE baseline",     data.mae_baseline ?? "–"],
+    ["MAE modell (sim)", data.mae_model    ?? "–"],
+    ["Volymavvikelse",   (data.volume_diff_pct ?? "–") + "%"],
+    ["Testpunkter (n)",  data.n_samples ?? "–"],
+  );
+  document.getElementById("elir-stats").innerHTML = stats.map(([l,v]) => `<div class="stat-box">
     <div class="stat-label">${l}</div>
     <div class="stat-value">${v}</div>
   </div>`).join("");

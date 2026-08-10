@@ -586,17 +586,15 @@ def calculate_elir(actual: list, simulated: list) -> dict:
     mae_model    = float(np.abs(a - s).mean())
 
     accuracy_gain = (mae_baseline - mae_model) / (mae_baseline + 1e-9)
-    i_factor      = round(min(0.30, max(0.0, accuracy_gain * 0.30)), 3)
+    accuracy_gain = max(0.0, accuracy_gain)
 
     total_actual    = float(a.sum())
     total_simulated = float(s.sum())
     volume_diff_pct = round((total_simulated - total_actual) / (total_actual + 1e-9) * 100, 1)
 
-    confidence = "hög" if i_factor > 0.10 else ("medium" if i_factor > 0.04 else "låg")
+    confidence = "hög" if accuracy_gain > 0.30 else ("medium" if accuracy_gain > 0.10 else "låg")
 
     return {
-        "i_factor":       i_factor,
-        "i_pct":          round(i_factor * 100, 1),
         "accuracy_gain":  round(accuracy_gain * 100, 1),
         "volume_diff_pct":volume_diff_pct,
         "total_actual":   round(total_actual, 1),

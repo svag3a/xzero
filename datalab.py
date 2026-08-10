@@ -182,13 +182,17 @@ Inga rubriker, bara löpande text."""
 
 
 async def _claude_elir_narrative(elir: dict, scan_info: dict, target_col: str, rule: str) -> str:
+    i_line = (f"- Indikativ I-faktor (prediktionsförbättring × R från Opportunity Scan): {elir['i_pct']}% "
+              f"(R-faktor: {elir['r_pct_used']}%)")  if elir.get("i_from_scan") else \
+             "- I-faktor: kan ej beräknas utan länkat Opportunity Scan (R-faktor saknas)"
+
     prompt = f"""Du är en analytiker på xZero som skriver beslutsunderlag.
 
 Data Lab-resultat:
 - Mål: prediktera '{target_col}'
 - Simuleringsregel: {rule}
-- I-faktor: {elir['i_pct']}%
-- Noggrannhetsförbättring vs baseline: {elir['accuracy_gain']}%
+- Prediktionsförbättring vs naiv baseline: {elir['accuracy_gain']}%
+{i_line}
 - Konfidens: {elir['confidence']}
 - MAE baseline: {elir['mae_baseline']}, MAE modell: {elir['mae_model']}
 
@@ -196,10 +200,9 @@ Opportunity Scan: {scan_info.get('company_name','Okänt bolag')}
 Hypotes: {scan_info.get('hypothesis','')}
 
 Skriv ett beslutsunderlag på 4-6 meningar på svenska:
-1. Vad bevisade Data Lab för denna specifika hypotes?
-2. Vad är den uppskattade I-faktorn för denna hypotes och vad den innebär ekonomiskt?
-3. Betona att I-faktorn på {elir['i_pct']}% gäller enbart denna hypotes — bolagets totala I-faktor (summan av alla validerade hypoteser) kan bli betydligt högre när övriga hypoteser också testas och valideras i Data Lab.
-4. Rekommendation: fortsätt till implementation / behöver mer data / potentialen för liten?
+1. Vad bevisade Data Lab statistiskt för denna hypotes? (prediktionsförbättring {elir['accuracy_gain']}% mot baseline)
+2. {'Vad den indikativa I-faktorn på ' + str(elir["i_pct"]) + '% innebär — tydliggör att den är beräknad som prediktionsförbättring × R-faktor från Opportunity Scan, inte en direkt ekonomisk kalkyl.' if elir.get('i_from_scan') else 'Förklara att en ekonomisk I-faktor kräver att sessionen länkas till ett Opportunity Scan.'}
+3. Rekommendation: fortsätt till implementation / behöver mer data / potentialen för liten?
 Direkt, konkret ton. Inga rubriker."""
 
     try:
@@ -501,6 +504,26 @@ async def elir(sid: str):
     if "error" in result:
         raise HTTPException(400, result["error"])
 
+    # Derive I-factor from scan R-factor if session is linked to a scan
+    scan_id = sess.get("scan_id")
+    r_pct   = None
+    if scan_id:
+        con = _db()
+        row = con.execute("SELECT r_pct FROM scans WHERE id=?", (scan_id,)).fetchone()
+        con.close()
+        if row and row[0] is not None:
+            r_pct = float(row[0])
+
+    if r_pct is not None:
+        i_pct = round(result["accuracy_gain"] * r_pct / 100, 1)
+        result["i_pct"]       = i_pct
+        result["r_pct_used"]  = round(r_pct, 1)
+        result["i_from_scan"] = True
+    else:
+        result["i_pct"]       = None
+        result["r_pct_used"]  = None
+        result["i_from_scan"] = False
+
     scan_info = {"company_name": sess.get("company_name",""), "hypothesis": sess.get("hypothesis","")}
     target    = sess.get("target_col","")
     rule      = sim.get("rule_label","")
@@ -656,7 +679,9 @@ def _datalab_report_html(sess: dict) -> str:
     target = _e(sess.get("target_col") or "")
 
     # ── ELIR numbers ──────────────────────────────────────────────────────────
-    i_pct     = elir.get("i_pct", 0)
+    i_pct        = elir.get("i_pct")
+    i_from_scan  = elir.get("i_from_scan", False)
+    r_pct_used   = elir.get("r_pct_used")
     acc_gain  = elir.get("accuracy_gain", 0)
     mae_base  = elir.get("mae_baseline", 0)
     mae_model = elir.get("mae_model",    0)
@@ -784,6 +809,7 @@ def _datalab_report_html(sess: dict) -> str:
     vol_str   = (_fmt(vol_diff) + " %") if isinstance(vol_diff, (int, float)) else "–"
     i_str     = (_fmt(i_pct)   + " %") if isinstance(i_pct,   (int, float)) else "–"
     acc_str   = (_fmt(acc_gain)+ " %") if isinstance(acc_gain,(int, float)) else "–"
+    r_str     = (_fmt(r_pct_used) + " %") if isinstance(r_pct_used, (int, float)) else "–"
 
     return f"""<!DOCTYPE html>
 <html lang="sv">
@@ -871,8 +897,9 @@ ul li{{margin-bottom:.25rem;font-size:.93rem}}
 <section>
   <h2>ELIR-resultat</h2>
   <div class="elir-grid">
-    <div class="elir-card good"><div class="val">{i_str}</div><div class="lbl">I-faktor</div></div>
-    <div class="elir-card accent"><div class="val">{acc_str}</div><div class="lbl">Noggrannhetsvinst</div></div>
+    <div class="elir-card accent"><div class="val">{acc_str}</div><div class="lbl">Prediktionsförbättring</div></div>
+    {'<div class="elir-card good"><div class="val">' + i_str + '</div><div class="lbl">Indikativ I-faktor</div></div>' if i_from_scan else ''}
+    {'<div class="elir-card"><div class="val">' + r_str + '</div><div class="lbl">R-faktor (från scan)</div></div>' if i_from_scan else ''}
     <div class="elir-card"><div class="val">{_fmt(mae_base)}</div><div class="lbl">MAE Baseline</div></div>
     <div class="elir-card"><div class="val">{_fmt(mae_model)}</div><div class="lbl">MAE Modell (sim)</div></div>
     <div class="elir-card"><div class="val">{vol_str}</div><div class="lbl">Volymavvikelse</div></div>
@@ -882,8 +909,8 @@ ul li{{margin-bottom:.25rem;font-size:.93rem}}
   <div class="callout">
     <strong>Om måtten</strong>
     <table><tbody>
-      <tr><td>I-faktor</td><td>Andel av förbättringspotentialen som modellen realiserar. Beräknas som noggrannhetsvinst × R-faktor och är det centrala måttet på affärsvärde.</td></tr>
-      <tr><td>Noggrannhetsvinst</td><td>Relativ förbättring i prediktionsnoggrannhet jämfört med en naiv basmodell (medelvärdesförutsägelse): (MAE<sub>baseline</sub> − MAE<sub>modell</sub>) / MAE<sub>baseline</sub>.</td></tr>
+      <tr><td>Prediktionsförbättring</td><td>Statistiskt mått på modellens träffsäkerhet jämfört med en naiv basmodell: (MAE<sub>baseline</sub> − MAE<sub>modell</sub>) / MAE<sub>baseline</sub>. Alltid beräknad, oberoende av ekonomisk kontext.</td></tr>
+      {'<tr><td>Indikativ I-faktor</td><td>Ekonomisk uppskattning av realiserat affärsvärde: prediktionsförbättring × R-faktor (hämtad från länkad Opportunity Scan). Visas endast när scan finns kopplad.</td></tr>' if i_from_scan else ''}
       <tr><td>MAE baseline</td><td>Mean Absolute Error för en naiv modell som alltid förutsäger medelvärdet. Referenspunkt för hur bra man gör utan AI.</td></tr>
       <tr><td>MAE modell (sim)</td><td>Mean Absolute Error för den bästa tränade modellen på testdata. Lägre är bättre; jämför alltid mot baseline.</td></tr>
       <tr><td>Volymavvikelse</td><td>Procentuell skillnad i total volym mellan simulerat och faktiskt utfall. Visar om modellen systematiskt över- eller underestimerar.</td></tr>
@@ -948,7 +975,9 @@ def _datalab_report_markdown(sess: dict) -> str:
     sim    = sess.get("simulation")   or {}
     elir   = sess.get("elir")         or {}
 
-    i_pct     = elir.get("i_pct", 0)
+    i_pct       = elir.get("i_pct")
+    i_from_scan = elir.get("i_from_scan", False)
+    r_pct_used  = elir.get("r_pct_used")
     acc_gain  = elir.get("accuracy_gain", 0)
     mae_base  = elir.get("mae_baseline", 0)
     mae_model = elir.get("mae_model", 0)
@@ -975,8 +1004,10 @@ def _datalab_report_markdown(sess: dict) -> str:
     lines.append("")
     lines.append(f"| Matt | Varde |")
     lines.append(f"|------|-------|")
-    lines.append(f"| I-faktor | **{fmt(i_pct)} %** |")
-    lines.append(f"| Noggrannhetsvinst | {fmt(acc_gain)} % |")
+    lines.append(f"| Prediktionsförbättring | **{fmt(acc_gain)} %** |")
+    if i_from_scan and i_pct is not None:
+        lines.append(f"| Indikativ I-faktor | **{fmt(i_pct)} %** |")
+        lines.append(f"| R-faktor (fran scan) | {fmt(r_pct_used)} % |")
     lines.append(f"| MAE Baseline | {fmt(mae_base, 3)} |")
     lines.append(f"| MAE Modell (sim) | {fmt(mae_model, 3)} |")
     lines.append(f"| Volymavvikelse | {fmt(vol_diff)} % |")
@@ -989,11 +1020,16 @@ def _datalab_report_markdown(sess: dict) -> str:
         lines.append(f"> {narrative}")
         lines.append("")
 
-    lines.append("> **Om matten:** I-faktor = noggrannhetsvinst x R-faktor — central matt pa affarsvarde. "
-                 "Noggrannhetsvinst = (MAE_baseline - MAE_modell) / MAE_baseline. "
-                 "MAE baseline = naiv medelvarde-prediktion. "
-                 "MAE modell = Mean Absolute Error pa testdata (30 % av dataset). "
-                 "Volymavvikelse = procentuell skillnad total volym simulerat vs faktiskt.")
+    if i_from_scan:
+        lines.append("> **Om matten:** Prediktionsförbättring = (MAE_baseline - MAE_modell) / MAE_baseline — statistiskt matt, alltid beraknad. "
+                     "Indikativ I-faktor = prediktionsförbättring x R-faktor fran lankad Opportunity Scan — ekonomisk uppskattning. "
+                     "MAE baseline = naiv medelvarde-prediktion. MAE modell = Mean Absolute Error pa testdata. "
+                     "Volymavvikelse = procentuell skillnad total volym simulerat vs faktiskt.")
+    else:
+        lines.append("> **Om matten:** Prediktionsförbättring = (MAE_baseline - MAE_modell) / MAE_baseline — statistiskt matt pa modellens trafafsakerhet. "
+                     "MAE baseline = naiv medelvarde-prediktion. MAE modell = Mean Absolute Error pa testdata. "
+                     "Volymavvikelse = procentuell skillnad total volym simulerat vs faktiskt. "
+                     "I-faktor (ekonomisk uppskattning) beraknas nar session ar lankad till en Opportunity Scan.")
     lines.append("")
 
     # ── Dataset & modellering ────────────────────────────────────────────────
