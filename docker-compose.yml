@@ -2,7 +2,7 @@ services:
   app:
     build: .
     ports:
-      - "8080:8000"
+      - "8000:8000"
     volumes:
       - scan_data:/data
     env_file:
