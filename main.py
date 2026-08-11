@@ -3583,26 +3583,43 @@ async def analyze(files: List[UploadFile] = File(...)):
     })
 
     def generate():
-        try:
-            with client.messages.stream(
-                model="us.anthropic.claude-sonnet-4-6",
-                max_tokens=8000,
-                system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": content}],
-            ) as stream:
-                for text in stream.text_stream:
-                    yield text
-        except anthropic.APIStatusError as e:
-            if e.status_code == 529:
-                yield "\n\n**Anthropics API är tillfälligt överbelastad.** Vänta någon minut och försök igen."
-            elif e.status_code == 413:
-                yield "\n\n**Filen är fortfarande för stor efter komprimering.** Prova att dela upp årsredovisningen i mindre delar (t.ex. bara resultat- och balansräkning) och ladda upp den delen."
-            else:
-                yield f"\n\n**Fel vid API-anrop ({e.status_code}):** {e.message}"
-        except anthropic.APIConnectionError:
-            yield "\n\n**Kunde inte nå Anthropics API.** Kontrollera din internetanslutning och försök igen."
-        except anthropic.APIError as e:
-            yield f"\n\n**Fel vid API-anrop:** {e}"
+        import threading, queue as _queue
+        q: _queue.Queue = _queue.Queue()
+
+        def _run():
+            try:
+                with client.messages.stream(
+                    model="us.anthropic.claude-sonnet-4-6",
+                    max_tokens=8000,
+                    system=SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": content}],
+                ) as stream:
+                    for text in stream.text_stream:
+                        q.put(text)
+            except anthropic.APIStatusError as e:
+                if e.status_code == 529:
+                    q.put("\n\n**Anthropics API är tillfälligt överbelastad.** Vänta någon minut och försök igen.")
+                elif e.status_code == 413:
+                    q.put("\n\n**Filen är fortfarande för stor efter komprimering.** Prova att dela upp årsredovisningen i mindre delar.")
+                else:
+                    q.put(f"\n\n**Fel vid API-anrop ({e.status_code}):** {e.message}")
+            except anthropic.APIConnectionError:
+                q.put("\n\n**Kunde inte nå Anthropics API.** Kontrollera din internetanslutning och försök igen.")
+            except anthropic.APIError as e:
+                q.put(f"\n\n**Fel vid API-anrop:** {e}")
+            finally:
+                q.put(None)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+        while True:
+            try:
+                item = q.get(timeout=25)
+                if item is None:
+                    break
+                yield item
+            except _queue.Empty:
+                yield " "  # keepalive — håller nginx-anslutningen vid liv
 
     return StreamingResponse(generate(), media_type="text/plain; charset=utf-8")
 
