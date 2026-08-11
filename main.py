@@ -3486,42 +3486,72 @@ async def analyze(files: List[UploadFile] = File(...)):
     if not 1 <= len(files) <= 5:
         raise HTTPException(status_code=400, detail="Ladda upp 1–5 årsredovisningar")
 
-    content = []
-    all_texts = []
-    first_page_b64 = None  # Första sidan av första skannande PDF — används för namnextraktion
-    MAX_TOTAL_PDF_PAGES = 100  # Bedrocks gräns
-    pages_per_file = MAX_TOTAL_PDF_PAGES // len(files)  # Fördela jämnt
-    print(f"Sidbudget: {pages_per_file} sidor/fil ({len(files)} filer)")
-
+    # Läs alla filer direkt (async) — validera filtyp och storlek
+    file_data: list[tuple[str, bytes]] = []
     for i, file in enumerate(files):
         if not (file.filename or "").lower().endswith(".pdf"):
             raise HTTPException(status_code=400, detail=f"Fil {i+1} är inte en PDF")
-
         pdf_bytes = await file.read()
         if len(pdf_bytes) > 500 * 1024 * 1024:
             raise HTTPException(status_code=400, detail=f"Fil {i+1} är för stor (max 500 MB)")
+        file_data.append((file.filename or f"fil{i+1}.pdf", pdf_bytes))
 
+    # Returnera StreamingResponse direkt — all tung bearbetning sker i bakgrundstråden
+    import threading, queue as _queue
+
+    def stream():
+        q: _queue.Queue = _queue.Queue()
+
+        def _run():
+            try:
+                _do_analyze(file_data, q)
+            except Exception as e:
+                q.put(f"\n\n**Oväntat fel:** {e}")
+            finally:
+                q.put(None)
+
+        threading.Thread(target=_run, daemon=True).start()
+        while True:
+            try:
+                item = q.get(timeout=25)
+                if item is None:
+                    break
+                yield item
+            except _queue.Empty:
+                yield " "  # keepalive
+
+    return StreamingResponse(stream(), media_type="text/plain; charset=utf-8")
+
+
+def _do_analyze(file_data: list[tuple[str, bytes]], q):
+
+    n_files = len(file_data)
+    content = []
+    all_texts = []
+    first_page_b64 = None
+    MAX_TOTAL_PDF_PAGES = 100
+    pages_per_file = MAX_TOTAL_PDF_PAGES // n_files
+    print(f"Sidbudget: {pages_per_file} sidor/fil ({n_files} filer)")
+
+    for i, (filename, pdf_bytes) in enumerate(file_data):
         size_mb = len(pdf_bytes) / 1024 / 1024
-        print(f"[fil {i+1}] {file.filename} — {size_mb:.1f} MB")
+        print(f"[fil {i+1}] {filename} — {size_mb:.1f} MB")
 
         text = extract_text(pdf_bytes)
         print(f"[fil {i+1}] textextraktion: {len(text)} tecken")
         all_texts.append(text)
 
         if len(text) > 100:
-            # Textbaserad PDF — skicka som text (ingen sidgräns)
-            label = f"ÅRSREDOVISNING {i+1} ({file.filename})"
+            label = f"ÅRSREDOVISNING {i+1} ({filename})"
             content.append({
                 "type": "text",
                 "text": f"<document index=\"{i+1}\" title=\"{label}\">\n{text}\n</document>",
             })
             print(f"[fil {i+1}] skickas som TEXT ({len(text)} tecken)")
         else:
-            # Skannad PDF — begränsa inom globalt sidbudget, komprimera, skicka som base64
             src = fitz.open(stream=pdf_bytes, filetype="pdf")
             total_pages = len(src)
             allowed = min(total_pages, pages_per_file)
-
             if total_pages > allowed:
                 print(f"[fil {i+1}] {total_pages} sidor — trunkerar till {allowed}")
                 trimmed = fitz.open()
@@ -3542,8 +3572,6 @@ async def analyze(files: List[UploadFile] = File(...)):
                 },
             })
             print(f"[fil {i+1}] skickas som BASE64 ({allowed}/{total_pages} sidor)")
-
-            # Spara första sidan av första skannande PDF för namnextraktion
             if first_page_b64 is None:
                 try:
                     one_page = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -3571,57 +3599,37 @@ async def analyze(files: List[UploadFile] = File(...)):
     else:
         print("Kunde inte identifiera bolagsnamn — hoppar över webdsökning")
 
-    n = len(files)
     content.append({
         "type": "text",
         "text": (
-            f"Du har fått {n} årsredovisning{'ar' if n > 1 else ''} för samma bolag. "
+            f"Du har fått {n_files} årsredovisning{'ar' if n_files > 1 else ''} för samma bolag. "
             "Identifiera vilket år respektive dokument avser (t₀ = senaste). "
             "Genomför analysen enligt regelverket och generera en komplett Opportunity Scan."
             + (f" Webdata om {company_name} är inkluderad ovan." if web_data else "")
         ),
     })
 
-    def generate():
-        import threading, queue as _queue
-        q: _queue.Queue = _queue.Queue()
-
-        def _run():
-            try:
-                with client.messages.stream(
-                    model="us.anthropic.claude-sonnet-4-6",
-                    max_tokens=8000,
-                    system=SYSTEM_PROMPT,
-                    messages=[{"role": "user", "content": content}],
-                ) as stream:
-                    for text in stream.text_stream:
-                        q.put(text)
-            except anthropic.APIStatusError as e:
-                if e.status_code == 529:
-                    q.put("\n\n**Anthropics API är tillfälligt överbelastad.** Vänta någon minut och försök igen.")
-                elif e.status_code == 413:
-                    q.put("\n\n**Filen är fortfarande för stor efter komprimering.** Prova att dela upp årsredovisningen i mindre delar.")
-                else:
-                    q.put(f"\n\n**Fel vid API-anrop ({e.status_code}):** {e.message}")
-            except anthropic.APIConnectionError:
-                q.put("\n\n**Kunde inte nå Anthropics API.** Kontrollera din internetanslutning och försök igen.")
-            except anthropic.APIError as e:
-                q.put(f"\n\n**Fel vid API-anrop:** {e}")
-            finally:
-                q.put(None)
-
-        threading.Thread(target=_run, daemon=True).start()
-
-        while True:
-            try:
-                item = q.get(timeout=25)
-                if item is None:
-                    break
-                yield item
-            except _queue.Empty:
-                yield " "  # keepalive — håller nginx-anslutningen vid liv
-
-    return StreamingResponse(generate(), media_type="text/plain; charset=utf-8")
+    # ── Bedrock-anrop ───────────────────────────────────────────────
+    try:
+        with client.messages.stream(
+            model="us.anthropic.claude-sonnet-4-6",
+            max_tokens=8000,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": content}],
+        ) as stream:
+            for text in stream.text_stream:
+                q.put(text)
+    except anthropic.APIStatusError as e:
+        if e.status_code == 529:
+            q.put("\n\n**Anthropics API är tillfälligt överbelastad.** Vänta någon minut och försök igen.")
+        elif e.status_code == 413:
+            q.put("\n\n**Filen är fortfarande för stor efter komprimering.** Prova att dela upp årsredovisningen i mindre delar.")
+        else:
+            q.put(f"\n\n**Fel vid API-anrop ({e.status_code}):** {e.message}")
+    except anthropic.APIConnectionError:
+        q.put("\n\n**Kunde inte nå Anthropics API.** Kontrollera din internetanslutning och försök igen.")
+    except anthropic.APIError as e:
+        q.put(f"\n\n**Fel vid API-anrop:** {e}")
 
 
 # ── FIREFLIES INTEGRATION ─────────────────────────────────────────────────────
