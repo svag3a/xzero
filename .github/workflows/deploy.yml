@@ -14,11 +14,20 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: TAVILY_API_KEY
           script: |
             set -e
             docker image prune -af
             docker builder prune -af
             cd /opt/opportunity-scan
             git pull origin main
+            # Uppdatera TAVILY_API_KEY i .env
+            if grep -q "^TAVILY_API_KEY=" .env; then
+              sed -i "s/^TAVILY_API_KEY=.*/TAVILY_API_KEY=$TAVILY_API_KEY/" .env
+            else
+              echo "TAVILY_API_KEY=$TAVILY_API_KEY" >> .env
+            fi
             docker compose build --no-cache
             docker compose up -d
+        env:
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
