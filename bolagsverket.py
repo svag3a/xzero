@@ -28,21 +28,19 @@ SCOPE           = "vardefulla-datamangder:read vardefulla-datamangder:ping"
 
 
 def _token_url() -> str:
-    return os.environ.get("BOLAGSVERKET_TOKEN_URL", _TOKEN_URL_PROD)
+    return os.environ.get("BOLAGSVERKET_TOKEN_URL") or _TOKEN_URL_PROD
 
 def _base_url() -> str:
-    return os.environ.get("BOLAGSVERKET_BASE_URL", _BASE_URL_PROD)
+    return os.environ.get("BOLAGSVERKET_BASE_URL") or _BASE_URL_PROD
 
 
 def _get_token() -> str:
+    client_id     = os.environ["BOLAGSVERKET_CLIENT_ID"]
+    client_secret = os.environ["BOLAGSVERKET_CLIENT_SECRET"]
     resp = requests.post(
         _token_url(),
-        data={
-            "grant_type":    "client_credentials",
-            "client_id":     os.environ["BOLAGSVERKET_CLIENT_ID"],
-            "client_secret": os.environ["BOLAGSVERKET_CLIENT_SECRET"],
-            "scope":         SCOPE,
-        },
+        auth=(client_id, client_secret),   # Basic Auth – vanligaste OAuth2-formatet
+        data={"grant_type": "client_credentials", "scope": SCOPE},
         timeout=15,
     )
     resp.raise_for_status()
