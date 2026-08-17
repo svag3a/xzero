@@ -179,6 +179,10 @@ def init_db():
         con.execute("ALTER TABLE crm_leads ADD COLUMN sort_order INTEGER DEFAULT 0")
     except Exception:
         pass
+    try:
+        con.execute("ALTER TABLE scan_jobs ADD COLUMN scan_id INTEGER")
+    except Exception:
+        pass
     con.execute("""
         CREATE TABLE IF NOT EXISTS datalab_sessions (
             id             TEXT PRIMARY KEY,
@@ -3479,6 +3483,118 @@ async def create_action_plan(scan_id: int):
             print(f"[action-plan] DB-fel: {e}")
 
     return StreamingResponse(generate(), media_type="text/plain; charset=utf-8")
+
+
+def _run_bedrock_from_texts(texts: list[tuple[str, str]]) -> str:
+    """
+    Kör en Opportunity Scan-analys på föruttagen text (t.ex. iXBRL).
+    texts = [(label, text), ...]. Returnerar komplett rapporttext.
+    Kallas från publ.py:s bakgrundstask.
+    """
+    content = []
+    all_plain: list[str] = []
+    for i, (label, text) in enumerate(texts):
+        all_plain.append(text)
+        content.append({
+            "type": "text",
+            "text": f"<document index=\"{i+1}\" title=\"{label}\">\n{text}\n</document>",
+        })
+
+    combined = "\n".join(all_plain)
+    client = get_client()
+    company_name = extract_company_name(combined)
+    web_data = ""
+    if company_name:
+        web_data = search_web(company_name)
+        if web_data:
+            content.insert(0, {"type": "text", "text": web_data})
+
+    n = len(texts)
+    content.append({
+        "type": "text",
+        "text": (
+            f"Du har fått {n} årsredovisning{'ar' if n > 1 else ''} för samma bolag. "
+            "Identifiera vilket år respektive dokument avser (t₀ = senaste). "
+            "Genomför analysen enligt regelverket och generera en komplett Opportunity Scan."
+            + (f" Webdata om {company_name} är inkluderad ovan." if web_data else "")
+        ),
+    })
+
+    msg = client.messages.create(
+        model="us.anthropic.claude-sonnet-4-6",
+        max_tokens=8000,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": content}],
+    )
+    return msg.content[0].text
+
+
+def _parse_report_text(report_text: str) -> tuple[str, str, Optional[str]]:
+    """
+    Delar upp rapporttexten i (report_markdown, scan_json_str, hypotheses_json_str).
+    """
+    parts = report_text.split(SCAN_DELIMITER)
+    if len(parts) < 2:
+        raise ValueError("<<<SCAN_DATA>>> saknas i rapporten")
+
+    scan_json_str = parts[1].strip().splitlines()[0]
+
+    hyp_parts = parts[0].split(HYPOTHESES_DELIMITER)
+    if len(hyp_parts) >= 2:
+        report_markdown   = hyp_parts[0].strip()
+        hypotheses_json   = hyp_parts[1].strip()
+    else:
+        report_markdown   = parts[0].strip()
+        hypotheses_json   = None
+
+    return report_markdown, scan_json_str, hypotheses_json
+
+
+def _db_save_scan(report_markdown: str, scan_json_str: str,
+                  hypotheses_json: Optional[str]) -> int:
+    """
+    Sparar en scan till DB och returnerar scan_id.
+    Kan anropas från bakgrundstasks utan HTTP-kontext.
+    """
+    data = json.loads(scan_json_str)
+    data = _sanitize_scan_data(data)
+
+    con = sqlite3.connect(DB_PATH)
+    cur = con.execute("""
+        INSERT INTO scans
+          (created_at, company_name, industry, revenue_msek, ebit_msek,
+           ebit_margin_pct, years_analyzed, variation_score,
+           e_msek, e_pct, l_msek, l_pct, i_msek, i_pct,
+           r_msek, r_pct, total_potential_msek, confidence, report_markdown,
+           workshop_hypotheses)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """, (
+        datetime.now(timezone.utc).isoformat(),
+        data.get("company_name"), data.get("industry"),
+        data.get("revenue_msek"), data.get("ebit_msek"),
+        data.get("ebit_margin_pct"), data.get("years_analyzed"),
+        data.get("variation_score"),
+        data.get("e_msek"), data.get("e_pct"),
+        data.get("l_msek"), data.get("l_pct"),
+        data.get("i_msek"), data.get("i_pct"),
+        data.get("r_msek"), data.get("r_pct"),
+        data.get("total_potential_msek"), data.get("confidence"),
+        _inject_standard_sections(report_markdown),
+        hypotheses_json,
+    ))
+    con.commit()
+    scan_id = cur.lastrowid
+    con.close()
+
+    try:
+        from graph_bootstrap import bootstrap_from_scan
+        graph = bootstrap_from_scan(scan_id, data, hypotheses_json)
+        _graph_save(graph)
+        print(f"[graph] bootstrapped scan-{scan_id}: {len(graph._nodes)} nodes")
+    except Exception as exc:
+        print(f"[graph] bootstrap failed for scan-{scan_id}: {exc}")
+
+    return scan_id
 
 
 @app.post("/analyze")

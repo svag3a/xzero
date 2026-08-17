@@ -128,6 +128,30 @@
   #state-done     { display: none; }
   #state-error    { display: none; }
 
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.25rem 0.7rem;
+    border-radius: 20px;
+    margin-top: 1rem;
+  }
+  .status-badge.pending   { background: #f1f5f9; color: #64748b; }
+  .status-badge.processing{ background: #eff6ff; color: #2563eb; }
+  .status-badge.complete  { background: #dcfce7; color: #15803d; }
+  .status-badge.error     { background: #fef2f2; color: #b91c1c; }
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  .status-badge.complete .status-dot,
+  .status-badge.error .status-dot { animation: none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
   .done-icon {
     width: 52px; height: 52px;
     background: #dcfce7;
@@ -241,14 +265,20 @@
 
   <!-- ── Done state ── -->
   <div id="state-done">
-    <div class="done-icon">✓</div>
-    <div class="done-title">Vi har tagit emot din förfrågan</div>
-    <p class="done-body">
-      Din Opportunity Scan skickas till <strong id="done-email"></strong>
-      inom 24 timmar.
+    <div class="done-icon" id="done-icon">⏳</div>
+    <div class="done-title" id="done-title">Analyserar årsredovisningen...</div>
+    <p class="done-body" id="done-body">
+      Vi hämtar er årsredovisning från Bolagsverket och kör analysen automatiskt.
+      Det tar vanligtvis 2–5 minuter.
       <br><br>
       <span class="done-ref" id="done-ref"></span>
     </p>
+    <div style="text-align:center">
+      <span class="status-badge processing" id="status-badge">
+        <span class="status-dot"></span>
+        <span id="status-text">Bearbetar...</span>
+      </span>
+    </div>
   </div>
 
   <!-- ── Error state ── -->
@@ -306,6 +336,64 @@
     return ok;
   }
 
+  function pollJobStatus(jobId) {
+    const MAX_POLLS = 72;  // 12 minutes
+    let count = 0;
+
+    async function check() {
+      count++;
+      try {
+        const res  = await fetch('/publ/status/' + jobId);
+        const data = await res.json();
+        const badge    = document.getElementById('status-badge');
+        const statusTx = document.getElementById('status-text');
+
+        if (data.status === 'complete') {
+          document.getElementById('done-icon').textContent  = '✓';
+          document.getElementById('done-title').textContent = 'Scan klar!';
+          document.getElementById('done-body').innerHTML =
+            'Din Opportunity Scan är genererad. Vi återkommer med en genomgång av resultaten.' +
+            '<br><br><span class="done-ref" id="done-ref">Referens: ' + jobId + '</span>';
+          badge.className    = 'status-badge complete';
+          statusTx.textContent = 'Analysen är klar';
+          return;
+        }
+
+        if (data.status === 'error') {
+          document.getElementById('done-icon').textContent  = '⚠';
+          document.getElementById('done-title').textContent = 'Något gick fel';
+          document.getElementById('done-body').innerHTML =
+            'Vi kunde inte generera din scan automatiskt, men vårt team har fått din förfrågan och återkommer inom 24 timmar.' +
+            '<br><br><span class="done-ref">Referens: ' + jobId + '</span>';
+          badge.className    = 'status-badge error';
+          statusTx.textContent = 'Manuell hantering';
+          return;
+        }
+
+        if (data.status === 'processing') {
+          badge.className    = 'status-badge processing';
+          statusTx.textContent = 'Analyserar...';
+        }
+
+        if (count >= MAX_POLLS) {
+          // Timeout: fall back to manual message
+          document.getElementById('done-icon').textContent  = '✓';
+          document.getElementById('done-title').textContent = 'Vi har tagit emot din förfrågan';
+          document.getElementById('done-body').innerHTML =
+            'Din Opportunity Scan skickas till din e-post inom 24 timmar.' +
+            '<br><br><span class="done-ref">Referens: ' + jobId + '</span>';
+          badge.className    = 'status-badge pending';
+          statusTx.textContent = 'Bekräftad';
+          return;
+        }
+      } catch (_) { /* nätverksfel – försök igen */ }
+
+      setTimeout(check, 10000);
+    }
+
+    setTimeout(check, 5000);
+  }
+
   document.getElementById('scan-form').addEventListener('submit', async e => {
     e.preventDefault();
     if (!validateForm()) return;
@@ -334,9 +422,9 @@
         throw new Error(data.error || 'Något gick fel, försök igen.');
       }
 
-      document.getElementById('done-email').textContent = email;
       document.getElementById('done-ref').textContent = 'Referens: ' + data.job_id;
       showState('done');
+      pollJobStatus(data.job_id);
 
     } catch (err) {
       document.getElementById('global-error').textContent = err.message;

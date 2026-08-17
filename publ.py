@@ -9,7 +9,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -60,6 +60,95 @@ def _send_email(to: str, subject: str, body: str):
         s.send_message(msg)
 
 
+def _auto_scan_job(job_id: str, orgnr: str, contact_name: str, contact_email: str):
+    """
+    Bakgrundstask: hämtar iXBRL från Bolagsverket, kör Bedrock-scan,
+    sparar resultatet och uppdaterar scan_job-status.
+
+    Kräver BOLAGSVERKET_CLIENT_ID + BOLAGSVERKET_CLIENT_SECRET i env.
+    Om kredentialerna saknas lämnas jobbet med status 'pending' (manuell hantering).
+    """
+    if not os.environ.get("BOLAGSVERKET_CLIENT_ID"):
+        logging.info(f"[auto-scan] {job_id}: Bolagsverket-credentials saknas – manuell hantering")
+        return
+
+    def _update_job(status, error_msg=None, scan_id=None):
+        now = datetime.now(timezone.utc).isoformat()
+        con = _get_db()
+        con.execute(
+            "UPDATE scan_jobs SET status=?, error_msg=?, scan_id=?, updated_at=? WHERE id=?",
+            (status, error_msg, scan_id, now, job_id),
+        )
+        con.commit()
+        con.close()
+
+    try:
+        _update_job("processing")
+
+        # Lazy imports to avoid circular import (main.py imports publ.py at startup)
+        from bolagsverket import get_annual_report_texts
+        from main import _run_bedrock_from_texts, _parse_report_text, _db_save_scan
+
+        logging.info(f"[auto-scan] {job_id}: hämtar årsredovisningar för {orgnr}")
+        texts = get_annual_report_texts(orgnr)
+        logging.info(f"[auto-scan] {job_id}: {len(texts)} dokument, kör Bedrock")
+
+        report_text = _run_bedrock_from_texts(texts)
+        logging.info(f"[auto-scan] {job_id}: rapport klar ({len(report_text):,} tecken), sparar")
+
+        report_md, scan_json_str, hypotheses_json = _parse_report_text(report_text)
+        scan_id = _db_save_scan(report_md, scan_json_str, hypotheses_json)
+
+        # Link crm_lead to scan
+        now = datetime.now(timezone.utc).isoformat()
+        con = _get_db()
+        con.execute(
+            "UPDATE crm_leads SET scan_id=?, status='Scan klar', updated_at=?, status_changed_at=? WHERE scan_job_id=?",
+            (scan_id, now, now, job_id),
+        )
+        con.commit()
+        con.close()
+
+        _update_job("complete", scan_id=scan_id)
+        logging.info(f"[auto-scan] {job_id}: klar, scan_id={scan_id}")
+
+        # Notify team with direct link
+        team_email = os.environ.get("NOTIFY_EMAIL", "")
+        base_url   = os.environ.get("APP_BASE_URL", "")
+        if team_email:
+            try:
+                _send_email(
+                    team_email,
+                    f"[xZero Scan] Auto-scan klar – {orgnr}",
+                    f"Scan klar för org.nr {orgnr}\n"
+                    f"Kontakt:  {contact_name} <{contact_email}>\n"
+                    f"Scan-id:  {scan_id}\n"
+                    f"Länk:     {base_url}/#scan-{scan_id}\n"
+                    f"Ref:      {job_id}",
+                )
+            except Exception as exc:
+                logging.warning(f"[auto-scan] team email failed: {exc}")
+
+        # Notify user
+        first = contact_name.split()[0] if contact_name else ""
+        try:
+            _send_email(
+                contact_email,
+                "Din Opportunity Scan är klar – xZero",
+                f"Hej {first},\n\n"
+                f"Din Opportunity Scan för org.nr {orgnr} är nu klar!\n\n"
+                f"Vi återkommer inom kort med en genomgång av resultaten.\n\n"
+                f"Referensnummer: {job_id}\n\n"
+                f"Med vänliga hälsningar,\nxZero",
+            )
+        except Exception as exc:
+            logging.warning(f"[auto-scan] user email failed: {exc}")
+
+    except Exception as exc:
+        logging.error(f"[auto-scan] {job_id}: fel: {exc}")
+        _update_job("error", error_msg=str(exc)[:500])
+
+
 @router.get("/publ", response_class=HTMLResponse)
 async def publ_page():
     html_path = Path(__file__).parent / "publ.html"
@@ -73,7 +162,7 @@ class ScanRequest(BaseModel):
 
 
 @router.post("/publ/submit")
-async def publ_submit(req: ScanRequest):
+async def publ_submit(req: ScanRequest, background_tasks: BackgroundTasks):
     try:
         orgnr = _validate_orgnr(req.orgnr)
     except ValueError as e:
@@ -133,6 +222,8 @@ async def publ_submit(req: ScanRequest):
     except Exception as e:
         logging.warning(f"[publ] user confirmation email failed: {e}")
 
+    background_tasks.add_task(_auto_scan_job, job_id, orgnr, contact_name, contact_email)
+
     return {"job_id": job_id}
 
 
@@ -140,10 +231,15 @@ async def publ_submit(req: ScanRequest):
 async def publ_status(job_id: str):
     con = _get_db()
     row = con.execute(
-        "SELECT status, error_msg, created_at FROM scan_jobs WHERE id=?",
+        "SELECT status, error_msg, scan_id, created_at FROM scan_jobs WHERE id=?",
         (job_id,)
     ).fetchone()
     con.close()
     if not row:
         return JSONResponse({"error": "Hittades inte"}, status_code=404)
-    return {"status": row["status"], "error": row["error_msg"], "created_at": row["created_at"]}
+    return {
+        "status":     row["status"],
+        "error":      row["error_msg"],
+        "scan_id":    row["scan_id"],
+        "created_at": row["created_at"],
+    }
