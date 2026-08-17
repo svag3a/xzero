@@ -19,7 +19,7 @@ RUN npm install --production
 COPY main.py rule_engine.py slides_generator.js \
      opportunity_graph.py gap_hunter.py playbook_generator.py \
      sweden_pelagic_seed.py graph_bootstrap.py publ.py \
-     datalab.py datalab_engine.py ./
+     datalab.py datalab_engine.py bolagsverket.py ./
 COPY index.html workshop.html architecture.html nda.html publ.html login.html datalab.html ./
 
 EXPOSE 8000
