@@ -24,7 +24,7 @@ from bs4 import BeautifulSoup
 
 _TOKEN_URL_PROD = "https://portal.api.bolagsverket.se/oauth2/token"
 _BASE_URL_PROD  = "https://gw.api.bolagsverket.se/vardefulla-datamangder/v1"
-SCOPE           = "vardefulla-datamangder:read vardefulla-datamangder:ping"
+SCOPE           = "vardefulla-datamangder:read"
 
 
 def _token_url() -> str:
@@ -43,7 +43,8 @@ def _get_token() -> str:
         data={"grant_type": "client_credentials", "scope": SCOPE},
         timeout=15,
     )
-    resp.raise_for_status()
+    if not resp.ok:
+        raise RuntimeError(f"Token-fel {resp.status_code}: {resp.text}")
     return resp.json()["access_token"]
 
 
