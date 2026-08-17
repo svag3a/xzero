@@ -10,6 +10,8 @@ Registrering (gratis, inget avtal):
 Env vars:
   BOLAGSVERKET_CLIENT_ID
   BOLAGSVERKET_CLIENT_SECRET
+  BOLAGSVERKET_TOKEN_URL   (valfri, default = produktion)
+  BOLAGSVERKET_BASE_URL    (valfri, default = produktion)
 """
 
 import io
@@ -20,14 +22,21 @@ import logging
 import requests
 from bs4 import BeautifulSoup
 
-TOKEN_URL = "https://portal.api.bolagsverket.se/oauth2/token"
-BASE_URL  = "https://gw.api.bolagsverket.se/vardefulla-datamangder/v1"
-SCOPE     = "vardefulla-datamangder:read vardefulla-datamangder:ping"
+_TOKEN_URL_PROD = "https://portal.api.bolagsverket.se/oauth2/token"
+_BASE_URL_PROD  = "https://gw.api.bolagsverket.se/vardefulla-datamangder/v1"
+SCOPE           = "vardefulla-datamangder:read vardefulla-datamangder:ping"
+
+
+def _token_url() -> str:
+    return os.environ.get("BOLAGSVERKET_TOKEN_URL", _TOKEN_URL_PROD)
+
+def _base_url() -> str:
+    return os.environ.get("BOLAGSVERKET_BASE_URL", _BASE_URL_PROD)
 
 
 def _get_token() -> str:
     resp = requests.post(
-        TOKEN_URL,
+        _token_url(),
         data={
             "grant_type":    "client_credentials",
             "client_id":     os.environ["BOLAGSVERKET_CLIENT_ID"],
@@ -42,7 +51,7 @@ def _get_token() -> str:
 
 def _fetch_document_list(orgnr: str, token: str) -> list[dict]:
     resp = requests.post(
-        f"{BASE_URL}/dokumentlista",
+        f"{_base_url()}/dokumentlista",
         headers={"Authorization": f"Bearer {token}"},
         json={"identitetsbeteckning": orgnr},
         timeout=30,
@@ -53,7 +62,7 @@ def _fetch_document_list(orgnr: str, token: str) -> list[dict]:
 
 def _fetch_ixbrl_text(doc_id: str, token: str) -> str:
     resp = requests.get(
-        f"{BASE_URL}/dokument/{doc_id}",
+        f"{_base_url()}/dokument/{doc_id}",
         headers={"Authorization": f"Bearer {token}", "Accept": "application/zip"},
         timeout=120,
     )
