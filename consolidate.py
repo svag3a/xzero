@@ -23,14 +23,44 @@ import sys
 import requests
 
 
+def list_scans(api_url: str, admin_token: str):
+    headers = {}
+    if admin_token:
+        headers["X-Admin-Token"] = admin_token
+    resp = requests.get(f"{api_url}/admin/scans", headers=headers, timeout=15)
+    resp.raise_for_status()
+    scans = resp.json()
+    print(f"{'ID':>5}  {'Bolag':<35}  {'Bransch':<20}  {'Oms MSEK':>9}  {'Potential':>9}  Datum")
+    print("─" * 95)
+    for s in scans:
+        print(
+            f"{s['id']:>5}  {(s['company_name'] or '')[:35]:<35}  "
+            f"{(s['industry'] or '')[:20]:<20}  "
+            f"{str(s['revenue_msek'] or ''):>9}  "
+            f"{str(s['total_potential_msek'] or ''):>9}  "
+            f"{(s['created_at'] or '')[:10]}"
+        )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Konsolidera scanar till koncernanalys")
-    parser.add_argument("--scan-ids",      required=True, help="Kommaseparerade scan_ids, t.ex. 12,17,23")
+    parser.add_argument("--scan-ids",      default="", help="Kommaseparerade scan_ids, t.ex. 12,17,23")
+    parser.add_argument("--list",          action="store_true", help="Lista senaste scanar med ID")
     parser.add_argument("--group-name",    default="Koncernanalys", help="Koncernens namn")
     parser.add_argument("--contact-name",  default="")
     parser.add_argument("--contact-email", default="")
     parser.add_argument("--api-url",       default="http://13.48.24.83")
     args = parser.parse_args()
+
+    admin_token = os.environ.get("ADMIN_TOKEN", "")
+
+    if args.list:
+        list_scans(args.api_url, admin_token)
+        return
+
+    if not args.scan_ids:
+        print("Ange --scan-ids eller --list")
+        sys.exit(1)
 
     try:
         scan_ids = [int(x.strip()) for x in args.scan_ids.split(",")]
@@ -42,7 +72,6 @@ def main():
         print("Fel: minst 2 scan_ids krävs")
         sys.exit(1)
 
-    admin_token = os.environ.get("ADMIN_TOKEN", "")
     headers = {"Content-Type": "application/json"}
     if admin_token:
         headers["X-Admin-Token"] = admin_token

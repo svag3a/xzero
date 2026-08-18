@@ -649,6 +649,25 @@ class ConsolidateRequest(BaseModel):
     contact_email: str = ""
 
 
+@router.get("/admin/scans")
+async def admin_list_scans(
+    limit: int = 50,
+    x_admin_token: Optional[str] = Header(None),
+):
+    admin_token = os.environ.get("ADMIN_TOKEN", "")
+    if admin_token and x_admin_token != admin_token:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    con = _get_db()
+    rows = con.execute(
+        """SELECT id, company_name, industry, revenue_msek, total_potential_msek,
+                  confidence, created_at
+           FROM scans ORDER BY id DESC LIMIT ?""",
+        (limit,)
+    ).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
 @router.post("/admin/consolidate")
 async def admin_consolidate(
     req: ConsolidateRequest,
