@@ -514,7 +514,7 @@ _AUTH_PASSWORD = os.environ.get("APP_PASSWORD", "")
 _COOKIE_NAME   = "xz_session"
 _signer        = URLSafeSerializer(_AUTH_SECRET, salt="auth")
 
-_PUBLIC_PREFIXES = ("/publ", "/login")
+_PUBLIC_PREFIXES = ("/publ", "/login", "/admin")
 
 
 def _is_authenticated(request: Request) -> bool:
