@@ -435,3 +435,240 @@ async def admin_scan_from_texts(
 
     logging.info(f"[admin] scan-from-texts queued: orgnr={orgnr}, docs={len(req.texts)}")
     return {"status": "queued", "orgnr": orgnr, "doc_count": len(req.texts)}
+
+
+# ── Admin: konsolidera befintliga scanar till en koncernanalys ───────────────
+
+_CONSOLIDATION_PROMPT = """\
+Du är en affärsanalytiker som ska sammanställa en koncernanalys baserat på individuella \
+Opportunity Scans för bolagen i en koncern.
+
+Nedan följer ELIR-data och nyckeltal för varje bolag i koncernen.
+
+{company_blocks}
+
+## Din uppgift
+
+Producera en strukturerad koncernanalys med följande delar:
+
+### 1. Koncernöversikt
+Sammanfatta koncernens samlade ELIR-potential i en tabell:
+- Totalt E, L, I, R och Total i MSEK
+- Varje bolags andel av totalpotentialen
+- Viktat genomsnitt av EBIT-marginal
+
+### 2. Dominerande mönster
+Identifiera 3–5 mönster som återkommer i flera bolag (t.ex. gemensam kostnadsdrivare, \
+strukturell ineffektivitet, gemensam marknadsmöjlighet).
+
+### 3. Prioriterade möjligheter på koncernnivå
+Lista de 3 mest prioriterade möjligheterna att adressera på koncernnivå, rangordnade efter \
+förväntad effekt. För varje möjlighet: vilket/vilka bolag berörs, ELIR-kategori, \
+uppskattad potential i MSEK.
+
+### 4. Rekommenderad startpunkt
+Vilket bolag och vilken hypotes ska koncernen adressera först, och varför? \
+Referera till de individuella hypoteserna (H1/H2/H3) från respektive bolag.
+
+Var konkret och kvantitativ. Använd siffrorna från ELIR-data konsekvent.
+"""
+
+_COMPANY_BLOCK_TEMPLATE = """\
+---
+## {company_name} (scan_id={scan_id})
+Bransch: {industry}
+Omsättning: {revenue_msek} MSEK  |  EBIT: {ebit_msek} MSEK  |  EBIT-marginal: {ebit_margin_pct}%
+Potential: E={e_msek} MSEK ({e_pct}%)  L={l_msek} MSEK ({l_pct}%)  \
+I={i_msek} MSEK ({i_pct}%)  R={r_msek} MSEK ({r_pct}%)
+Total potential: {total_potential_msek} MSEK  |  Tillförlitlighet: {confidence}
+
+Hypoteser:
+{hypotheses}
+"""
+
+
+def _format_hypotheses(hyp_json: str) -> str:
+    import json as _json
+    try:
+        hyps = _json.loads(hyp_json) if hyp_json else []
+        if not hyps:
+            return "  (inga hypoteser)"
+        lines = []
+        for h in hyps:
+            elir = h.get("linked_elir", {})
+            lines.append(
+                f"  {h.get('hypothesis_id','?')}: {h.get('title','')} "
+                f"[E:{elir.get('E_relevance','?')} L:{elir.get('L_relevance','?')} "
+                f"I:{elir.get('I_relevance','?')} R:{elir.get('R_relevance','?')}] "
+                f"prio={h.get('simulation_priority_rank','?')}"
+            )
+        return "\n".join(lines)
+    except Exception:
+        return "  (kunde inte tolka hypoteser)"
+
+
+def _consolidation_job(
+    group_name: str,
+    scan_ids: list,
+    contact_name: str,
+    contact_email: str,
+):
+    import json as _json
+    import anthropic
+
+    logging.info(f"[consolidate] startar för {len(scan_ids)} scanar: {scan_ids}")
+
+    # Hämta scan-data från DB
+    con = _get_db()
+    company_blocks = []
+    missing = []
+    for sid in scan_ids:
+        row = con.execute(
+            """SELECT id, company_name, industry, revenue_msek, ebit_msek, ebit_margin_pct,
+                      e_msek, e_pct, l_msek, l_pct, i_msek, i_pct, r_msek, r_pct,
+                      total_potential_msek, confidence, workshop_hypotheses
+               FROM scans WHERE id=?""",
+            (sid,)
+        ).fetchone()
+        if not row:
+            logging.warning(f"[consolidate] scan_id={sid} hittades inte")
+            missing.append(sid)
+            continue
+        block = _COMPANY_BLOCK_TEMPLATE.format(
+            company_name      = row["company_name"] or f"Bolag {sid}",
+            scan_id           = sid,
+            industry          = row["industry"] or "okänd",
+            revenue_msek      = row["revenue_msek"] or 0,
+            ebit_msek         = row["ebit_msek"] or 0,
+            ebit_margin_pct   = round(row["ebit_margin_pct"] or 0, 1),
+            e_msek            = row["e_msek"] or 0,
+            e_pct             = round(row["e_pct"] or 0, 1),
+            l_msek            = row["l_msek"] or 0,
+            l_pct             = round(row["l_pct"] or 0, 1),
+            i_msek            = row["i_msek"] or 0,
+            i_pct             = round(row["i_pct"] or 0, 1),
+            r_msek            = row["r_msek"] or 0,
+            r_pct             = round(row["r_pct"] or 0, 1),
+            total_potential_msek = row["total_potential_msek"] or 0,
+            confidence        = row["confidence"] or "okänd",
+            hypotheses        = _format_hypotheses(row["workshop_hypotheses"]),
+        )
+        company_blocks.append(block)
+    con.close()
+
+    if not company_blocks:
+        logging.error(f"[consolidate] inga giltiga scanar hittades")
+        return
+
+    prompt = _CONSOLIDATION_PROMPT.format(company_blocks="\n".join(company_blocks))
+
+    # Kör Bedrock
+    try:
+        aws_key    = os.environ.get("AWS_ACCESS_KEY_ID", "")
+        aws_secret = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
+        aws_region = os.environ.get("AWS_DEFAULT_REGION", "eu-north-1")
+        client = anthropic.AnthropicBedrock(
+            aws_access_key=aws_key,
+            aws_secret_key=aws_secret,
+            aws_region=aws_region,
+            max_retries=3,
+        )
+        msg = client.messages.create(
+            model="us.anthropic.claude-sonnet-4-6",
+            max_tokens=8000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        report_md = msg.content[0].text
+        logging.info(f"[consolidate] rapport klar ({len(report_md):,} tecken)")
+    except Exception as exc:
+        logging.error(f"[consolidate] Bedrock-fel: {exc}")
+        return
+
+    # Spara som en ny scan med type='group'
+    now = datetime.now(timezone.utc).isoformat()
+    con = _get_db()
+    try:
+        cur = con.execute(
+            """INSERT INTO scans
+               (created_at, company_name, industry, revenue_msek, report_markdown, confidence)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (now, group_name or "Koncernanalys",
+             "Koncern",
+             0,   # summeras i rapporten
+             report_md,
+             "group"),
+        )
+        group_scan_id = cur.lastrowid
+        con.commit()
+    except Exception as exc:
+        logging.error(f"[consolidate] DB-fel: {exc}")
+        con.close()
+        return
+    con.close()
+
+    logging.info(f"[consolidate] sparat som scan_id={group_scan_id}")
+
+    # Notifiera teamet
+    team_email = os.environ.get("NOTIFY_EMAIL", "")
+    base_url   = os.environ.get("APP_BASE_URL", "")
+    if team_email:
+        try:
+            _send_email(
+                team_email,
+                f"[xZero] Koncernanalys klar – {group_name}",
+                f"Koncernanalys klar för {group_name}\n"
+                f"Ingående scanar: {scan_ids}\n"
+                f"Scan-id: {group_scan_id}\n"
+                f"Länk: {base_url}/#scan-{group_scan_id}\n"
+                + (f"Missade scanar: {missing}" if missing else ""),
+            )
+        except Exception as exc:
+            logging.warning(f"[consolidate] team email failed: {exc}")
+
+    if contact_email:
+        first = contact_name.split()[0] if contact_name else ""
+        try:
+            _send_email(
+                contact_email,
+                f"Er Opportunity Scan är klar – {group_name}",
+                f"Hej {first},\n\n"
+                f"Koncernanalysen för {group_name} är nu klar!\n\n"
+                f"Vi återkommer inom kort med en genomgång av resultaten.\n\n"
+                f"Med vänliga hälsningar,\nxZero",
+            )
+        except Exception as exc:
+            logging.warning(f"[consolidate] user email failed: {exc}")
+
+    return group_scan_id
+
+
+class ConsolidateRequest(BaseModel):
+    scan_ids:      List[int]
+    group_name:    str = "Koncernanalys"
+    contact_name:  str = ""
+    contact_email: str = ""
+
+
+@router.post("/admin/consolidate")
+async def admin_consolidate(
+    req: ConsolidateRequest,
+    background_tasks: BackgroundTasks,
+    x_admin_token: Optional[str] = Header(None),
+):
+    admin_token = os.environ.get("ADMIN_TOKEN", "")
+    if admin_token and x_admin_token != admin_token:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    if len(req.scan_ids) < 2:
+        return JSONResponse({"error": "Minst 2 scan_ids krävs"}, status_code=422)
+
+    background_tasks.add_task(
+        _consolidation_job,
+        req.group_name,
+        req.scan_ids,
+        req.contact_name,
+        req.contact_email,
+    )
+
+    logging.info(f"[admin] consolidate queued: {req.scan_ids}")
+    return {"status": "queued", "scan_ids": req.scan_ids, "group_name": req.group_name}
