@@ -705,7 +705,9 @@ async def admin_list_scans(
     con = _get_db()
     rows = con.execute(
         """SELECT id, company_name, industry, revenue_msek, total_potential_msek,
-                  confidence, created_at
+                  confidence, created_at,
+                  CASE WHEN workshop_hypotheses IS NOT NULL AND workshop_hypotheses != '[]'
+                       THEN 1 ELSE 0 END AS has_hypotheses
            FROM scans ORDER BY id DESC LIMIT ?""",
         (limit,)
     ).fetchall()
