@@ -534,6 +534,24 @@ def _consolidation_job(
             logging.warning(f"[consolidate] scan_id={sid} hittades inte")
             missing.append(sid)
             continue
+
+        # Hämta hypoteser – försök workshop_hypotheses i scans-tabellen, fallback till workshop_sessions
+        hyp_json = row["workshop_hypotheses"]
+        if not hyp_json or hyp_json == "[]":
+            ws_row = con.execute(
+                "SELECT session_json FROM workshop_sessions WHERE scan_id=? ORDER BY created_at DESC LIMIT 1",
+                (sid,)
+            ).fetchone()
+            if ws_row:
+                try:
+                    ws = _json.loads(ws_row["session_json"])
+                    hyp_list = ws.get("hypotheses") or []
+                    if hyp_list:
+                        hyp_json = _json.dumps(hyp_list, ensure_ascii=False)
+                        logging.info(f"[consolidate] scan {sid}: hämtade {len(hyp_list)} hypoteser från workshop_sessions")
+                except Exception:
+                    pass
+
         block = _COMPANY_BLOCK_TEMPLATE.format(
             company_name      = row["company_name"] or f"Bolag {sid}",
             scan_id           = sid,
@@ -551,7 +569,7 @@ def _consolidation_job(
             r_pct             = round(row["r_pct"] or 0, 1),
             total_potential_msek = row["total_potential_msek"] or 0,
             confidence        = row["confidence"] or "okänd",
-            hypotheses        = _format_hypotheses(row["workshop_hypotheses"]),
+            hypotheses        = _format_hypotheses(hyp_json),
         )
         company_blocks.append(block)
     con.close()
@@ -704,11 +722,18 @@ async def admin_list_scans(
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
     con = _get_db()
     rows = con.execute(
-        """SELECT id, company_name, industry, revenue_msek, total_potential_msek,
-                  confidence, created_at,
-                  CASE WHEN workshop_hypotheses IS NOT NULL AND workshop_hypotheses != '[]'
+        """SELECT s.id, s.company_name, s.industry, s.revenue_msek, s.total_potential_msek,
+                  s.confidence, s.created_at,
+                  CASE WHEN (s.workshop_hypotheses IS NOT NULL AND s.workshop_hypotheses != '[]')
+                            OR EXISTS (
+                                SELECT 1 FROM workshop_sessions ws
+                                WHERE ws.scan_id = s.id
+                                  AND ws.session_json LIKE '%"hypotheses"%'
+                                  AND ws.session_json NOT LIKE '%"hypotheses": []%'
+                                  AND ws.session_json NOT LIKE '%"hypotheses":[]%'
+                            )
                        THEN 1 ELSE 0 END AS has_hypotheses
-           FROM scans ORDER BY id DESC LIMIT ?""",
+           FROM scans s ORDER BY s.id DESC LIMIT ?""",
         (limit,)
     ).fetchall()
     con.close()
