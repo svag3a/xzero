@@ -9,9 +9,10 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Header
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
+from typing import List, Optional
 
 router = APIRouter()
 
@@ -286,3 +287,151 @@ async def publ_status(job_id: str):
         "status_msg": row["status_msg"],
         "created_at": row["created_at"],
     }
+
+
+# ── Admin: kör scan från förextraherade texter (t.ex. Textract-OCR) ─────────
+
+class TextEntry(BaseModel):
+    label: str
+    text:  str
+
+class GroupScanRequest(BaseModel):
+    orgnr:         str
+    company_name:  str = ""
+    contact_name:  str = ""
+    contact_email: str = ""
+    contact_phone: str = ""
+    texts:         List[TextEntry]   # [(label, text), ...]
+
+
+def _run_group_scan_job(
+    scan_id_holder: list,
+    orgnr: str,
+    company_name: str,
+    contact_name: str,
+    contact_email: str,
+    contact_phone: str,
+    texts: list,
+):
+    """Bakgrundstask: kör Bedrock-scan på förextraherade texter och sparar resultatet."""
+    import json as _json
+    lead_id = str(uuid.uuid4())[:8].upper()
+    now     = datetime.now(timezone.utc).isoformat()
+
+    # Skapa crm_lead direkt
+    con = _get_db()
+    con.execute(
+        """INSERT INTO crm_leads
+           (id, orgnr, company_name, contact_name, contact_email, contact_phone,
+            status, created_at, updated_at, status_changed_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'Lead', ?, ?, ?)""",
+        (lead_id, orgnr, company_name, contact_name, contact_email, contact_phone,
+         now, now, now),
+    )
+    con.commit()
+    con.close()
+
+    try:
+        from main import _run_bedrock_from_texts, _parse_report_text, _db_save_scan
+
+        text_tuples = [(t["label"], t["text"]) for t in texts]
+        logging.info(f"[group-scan] {lead_id}: {len(text_tuples)} dokument, kör Bedrock")
+        report_text = _run_bedrock_from_texts(text_tuples)
+
+        report_md, scan_json_str, hypotheses_json = _parse_report_text(report_text)
+        sid = _db_save_scan(report_md, scan_json_str, hypotheses_json)
+        scan_id_holder.append(sid)
+
+        # Fyll i bolagsnamn från scan-JSON om det saknades
+        try:
+            sd_name = _json.loads(scan_json_str).get("company_name", "") or company_name
+        except Exception:
+            sd_name = company_name
+
+        now2 = datetime.now(timezone.utc).isoformat()
+        con = _get_db()
+        con.execute(
+            "UPDATE crm_leads SET scan_id=?, status='Scan klar', company_name=?, updated_at=?, status_changed_at=? WHERE id=?",
+            (sid, sd_name, now2, now2, lead_id),
+        )
+        con.commit()
+        con.close()
+
+        logging.info(f"[group-scan] {lead_id}: klar, scan_id={sid}")
+
+        # Notifiera teamet
+        team_email = os.environ.get("NOTIFY_EMAIL", "")
+        base_url   = os.environ.get("APP_BASE_URL", "")
+        if team_email:
+            try:
+                _send_email(
+                    team_email,
+                    f"[xZero Scan] Gruppscan klar – {sd_name or orgnr}",
+                    f"Gruppscan klar för {sd_name or orgnr} (org.nr {orgnr})\n"
+                    f"Kontakt:  {contact_name} <{contact_email}>\n"
+                    f"Scan-id:  {sid}\n"
+                    f"Länk:     {base_url}/#scan-{sid}\n"
+                    f"Dokument: {len(text_tuples)} st",
+                )
+            except Exception as exc:
+                logging.warning(f"[group-scan] team email failed: {exc}")
+
+        # Bekräfta till kontaktpersonen
+        if contact_email:
+            first = contact_name.split()[0] if contact_name else ""
+            try:
+                _send_email(
+                    contact_email,
+                    f"Din Opportunity Scan är klar – {sd_name or orgnr}",
+                    f"Hej {first},\n\n"
+                    f"Din Opportunity Scan för {sd_name or orgnr} är nu klar!\n\n"
+                    f"Vi återkommer inom kort med en genomgång av resultaten.\n\n"
+                    f"Med vänliga hälsningar,\nxZero",
+                )
+            except Exception as exc:
+                logging.warning(f"[group-scan] user email failed: {exc}")
+
+    except Exception as exc:
+        logging.error(f"[group-scan] {lead_id}: fel: {exc}")
+        now2 = datetime.now(timezone.utc).isoformat()
+        con = _get_db()
+        con.execute(
+            "UPDATE crm_leads SET status='Fel', notes=?, updated_at=?, status_changed_at=? WHERE id=?",
+            (str(exc)[:500], now2, now2, lead_id),
+        )
+        con.commit()
+        con.close()
+
+
+@router.post("/admin/scan-from-texts")
+async def admin_scan_from_texts(
+    req: GroupScanRequest,
+    background_tasks: BackgroundTasks,
+    x_admin_token: Optional[str] = Header(None),
+):
+    admin_token = os.environ.get("ADMIN_TOKEN", "")
+    if admin_token and x_admin_token != admin_token:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    if not req.texts:
+        return JSONResponse({"error": "Inga texter skickades"}, status_code=422)
+
+    try:
+        orgnr = _validate_orgnr(req.orgnr)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=422)
+
+    scan_id_holder: list = []
+    background_tasks.add_task(
+        _run_group_scan_job,
+        scan_id_holder,
+        orgnr,
+        req.company_name.strip(),
+        req.contact_name.strip(),
+        req.contact_email.strip(),
+        req.contact_phone.strip(),
+        [t.dict() for t in req.texts],
+    )
+
+    logging.info(f"[admin] scan-from-texts queued: orgnr={orgnr}, docs={len(req.texts)}")
+    return {"status": "queued", "orgnr": orgnr, "doc_count": len(req.texts)}
