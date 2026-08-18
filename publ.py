@@ -649,6 +649,51 @@ class ConsolidateRequest(BaseModel):
     contact_email: str = ""
 
 
+class UpdateScanFinancialsRequest(BaseModel):
+    scan_id:         int
+    revenue_msek:    float
+    ebit_msek:       float
+    ebit_margin_pct: float = 0.0
+    industry:        Optional[str] = None
+
+
+@router.post("/admin/update-scan-financials")
+async def admin_update_scan_financials(
+    req: UpdateScanFinancialsRequest,
+    x_admin_token: Optional[str] = Header(None),
+):
+    admin_token = os.environ.get("ADMIN_TOKEN", "")
+    if admin_token and x_admin_token != admin_token:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    con = _get_db()
+    row = con.execute("SELECT id FROM scans WHERE id=?", (req.scan_id,)).fetchone()
+    if not row:
+        con.close()
+        return JSONResponse({"error": f"scan_id {req.scan_id} hittades inte"}, status_code=404)
+
+    fields = {
+        "revenue_msek":    req.revenue_msek,
+        "ebit_msek":       req.ebit_msek,
+        "ebit_margin_pct": req.ebit_margin_pct or (
+            round(req.ebit_msek / req.revenue_msek * 100, 2) if req.revenue_msek else 0.0
+        ),
+    }
+    if req.industry:
+        fields["industry"] = req.industry
+
+    set_clause = ", ".join(f"{k}=?" for k in fields)
+    con.execute(
+        f"UPDATE scans SET {set_clause} WHERE id=?",
+        (*fields.values(), req.scan_id),
+    )
+    con.commit()
+    con.close()
+
+    logging.info(f"[admin] scan {req.scan_id} uppdaterad: {fields}")
+    return {"updated": req.scan_id, "fields": fields}
+
+
 @router.get("/admin/scans")
 async def admin_list_scans(
     limit: int = 50,
