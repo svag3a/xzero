@@ -372,7 +372,7 @@
 
         if (data.status === 'processing') {
           badge.className    = 'status-badge processing';
-          statusTx.textContent = 'Analyserar...';
+          statusTx.textContent = data.status_msg || 'Analyserar...';
         }
 
         if (count >= MAX_POLLS) {

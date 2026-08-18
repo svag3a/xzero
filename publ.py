@@ -72,30 +72,33 @@ def _auto_scan_job(job_id: str, orgnr: str, contact_name: str, contact_email: st
         logging.info(f"[auto-scan] {job_id}: Bolagsverket-credentials saknas – manuell hantering")
         return
 
-    def _update_job(status, error_msg=None, scan_id=None):
+    def _update_job(status, error_msg=None, scan_id=None, msg=None):
         now = datetime.now(timezone.utc).isoformat()
         con = _get_db()
         con.execute(
-            "UPDATE scan_jobs SET status=?, error_msg=?, scan_id=?, updated_at=? WHERE id=?",
-            (status, error_msg, scan_id, now, job_id),
+            "UPDATE scan_jobs SET status=?, error_msg=?, scan_id=?, status_msg=?, updated_at=? WHERE id=?",
+            (status, error_msg, scan_id, msg, now, job_id),
         )
         con.commit()
         con.close()
 
     try:
-        _update_job("processing")
+        _update_job("processing", msg="Hämtar token från Bolagsverket...")
 
         # Lazy imports to avoid circular import (main.py imports publ.py at startup)
         from bolagsverket import get_annual_report_texts
         from main import _run_bedrock_from_texts, _parse_report_text, _db_save_scan
 
         logging.info(f"[auto-scan] {job_id}: hämtar årsredovisningar för {orgnr}")
+        _update_job("processing", msg=f"Hämtar årsredovisningar för {orgnr}...")
         texts = get_annual_report_texts(orgnr)
         logging.info(f"[auto-scan] {job_id}: {len(texts)} dokument, kör Bedrock")
 
+        _update_job("processing", msg=f"Analyserar {len(texts)} årsredovisning{'ar' if len(texts) > 1 else ''} med AI...")
         report_text = _run_bedrock_from_texts(texts)
         logging.info(f"[auto-scan] {job_id}: rapport klar ({len(report_text):,} tecken), sparar")
 
+        _update_job("processing", msg="Sparar rapport...")
         report_md, scan_json_str, hypotheses_json = _parse_report_text(report_text)
         scan_id = _db_save_scan(report_md, scan_json_str, hypotheses_json)
 
@@ -231,7 +234,7 @@ async def publ_submit(req: ScanRequest, background_tasks: BackgroundTasks):
 async def publ_status(job_id: str):
     con = _get_db()
     row = con.execute(
-        "SELECT status, error_msg, scan_id, created_at FROM scan_jobs WHERE id=?",
+        "SELECT status, error_msg, scan_id, status_msg, created_at FROM scan_jobs WHERE id=?",
         (job_id,)
     ).fetchone()
     con.close()
@@ -241,5 +244,6 @@ async def publ_status(job_id: str):
         "status":     row["status"],
         "error":      row["error_msg"],
         "scan_id":    row["scan_id"],
+        "status_msg": row["status_msg"],
         "created_at": row["created_at"],
     }

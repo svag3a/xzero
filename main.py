@@ -183,6 +183,10 @@ def init_db():
         con.execute("ALTER TABLE scan_jobs ADD COLUMN scan_id INTEGER")
     except Exception:
         pass
+    try:
+        con.execute("ALTER TABLE scan_jobs ADD COLUMN status_msg TEXT")
+    except Exception:
+        pass
     con.execute("""
         CREATE TABLE IF NOT EXISTS datalab_sessions (
             id             TEXT PRIMARY KEY,
