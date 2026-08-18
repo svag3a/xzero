@@ -112,12 +112,19 @@ def _auto_scan_job(job_id: str, orgnr: str, contact_name: str, contact_email: st
         report_md, scan_json_str, hypotheses_json = _parse_report_text(report_text)
         scan_id = _db_save_scan(report_md, scan_json_str, hypotheses_json)
 
-        # Link crm_lead to scan
+        # Link crm_lead to scan, fyll company_name från scan-JSON om det saknades
         now = datetime.now(timezone.utc).isoformat()
+        try:
+            sd_name = _json.loads(scan_json_str).get("company_name", "")
+        except Exception:
+            sd_name = ""
         con = _get_db()
         con.execute(
-            "UPDATE crm_leads SET scan_id=?, status='Scan klar', updated_at=?, status_changed_at=? WHERE scan_job_id=?",
-            (scan_id, now, now, job_id),
+            """UPDATE crm_leads
+               SET scan_id=?, status='Scan klar', updated_at=?, status_changed_at=?,
+                   company_name=COALESCE(NULLIF(company_name,''), ?)
+               WHERE scan_job_id=?""",
+            (scan_id, now, now, sd_name, job_id),
         )
         con.commit()
         con.close()
@@ -188,6 +195,8 @@ class ScanRequest(BaseModel):
     orgnr:         str
     contact_name:  str
     contact_email: str
+    company_name:  str = ""
+    contact_phone: str = ""
 
 
 @router.post("/publ/submit")
@@ -199,6 +208,8 @@ async def publ_submit(req: ScanRequest, background_tasks: BackgroundTasks):
 
     contact_name  = req.contact_name.strip()
     contact_email = req.contact_email.strip()
+    company_name  = req.company_name.strip()
+    contact_phone = req.contact_phone.strip()
 
     if not contact_name:
         return JSONResponse({"error": "Namn saknas"}, status_code=422)
@@ -217,9 +228,11 @@ async def publ_submit(req: ScanRequest, background_tasks: BackgroundTasks):
     )
     con.execute(
         """INSERT INTO crm_leads
-           (id, orgnr, contact_name, contact_email, status, scan_job_id, created_at, updated_at, status_changed_at)
-           VALUES (?, ?, ?, ?, 'Lead', ?, ?, ?, ?)""",
-        (lead_id, orgnr, contact_name, contact_email, job_id, now, now, now)
+           (id, orgnr, company_name, contact_name, contact_email, contact_phone,
+            status, scan_job_id, created_at, updated_at, status_changed_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'Lead', ?, ?, ?, ?)""",
+        (lead_id, orgnr, company_name, contact_name, contact_email, contact_phone,
+         job_id, now, now, now)
     )
     con.commit()
     con.close()
