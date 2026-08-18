@@ -82,6 +82,8 @@ def _auto_scan_job(job_id: str, orgnr: str, contact_name: str, contact_email: st
         con.commit()
         con.close()
 
+    import json as _json
+
     try:
         _update_job("processing", msg="Hämtar token från Bolagsverket...")
 
@@ -91,9 +93,17 @@ def _auto_scan_job(job_id: str, orgnr: str, contact_name: str, contact_email: st
 
         logging.info(f"[auto-scan] {job_id}: hämtar årsredovisningar för {orgnr}")
         _update_job("processing", msg=f"Hämtar årsredovisningar för {orgnr}...")
-        texts = get_annual_report_texts(orgnr)
-        logging.info(f"[auto-scan] {job_id}: {len(texts)} dokument, kör Bedrock")
+        try:
+            texts = get_annual_report_texts(orgnr)
+        except RuntimeError as exc:
+            if "Inga årsredovisningar" in str(exc):
+                # Inget iXBRL — tyst fallback till manuell hantering
+                logging.info(f"[auto-scan] {job_id}: ingen iXBRL – manuell hantering")
+                _update_job("manual", msg="Ingen digital årsredovisning – hanteras manuellt")
+                return
+            raise
 
+        logging.info(f"[auto-scan] {job_id}: {len(texts)} dokument, kör Bedrock")
         _update_job("processing", msg=f"Analyserar {len(texts)} årsredovisning{'ar' if len(texts) > 1 else ''} med AI...")
         report_text = _run_bedrock_from_texts(texts)
         logging.info(f"[auto-scan] {job_id}: rapport klar ({len(report_text):,} tecken), sparar")
@@ -112,35 +122,51 @@ def _auto_scan_job(job_id: str, orgnr: str, contact_name: str, contact_email: st
         con.commit()
         con.close()
 
-        _update_job("complete", scan_id=scan_id)
+        _update_job("complete", scan_id=scan_id, msg="Scan klar!")
         logging.info(f"[auto-scan] {job_id}: klar, scan_id={scan_id}")
 
-        # Notify team with direct link
+        # Extrahera nyckeltal för e-post
+        try:
+            sd = _json.loads(scan_json_str)
+            company  = sd.get("company_name", orgnr)
+            revenue  = sd.get("revenue_msek")
+            total    = sd.get("total_potential_msek")
+            conf     = sd.get("confidence", "")
+            metrics  = ""
+            if revenue: metrics += f"\nOmsättning:       {revenue} MSEK"
+            if total:   metrics += f"\nTotal potential:  {total} MSEK"
+            if conf:    metrics += f"\nTillförlitlighet: {conf}"
+        except Exception:
+            company, metrics = orgnr, ""
+
+        # Notifiera teamet
         team_email = os.environ.get("NOTIFY_EMAIL", "")
         base_url   = os.environ.get("APP_BASE_URL", "")
         if team_email:
             try:
                 _send_email(
                     team_email,
-                    f"[xZero Scan] Auto-scan klar – {orgnr}",
-                    f"Scan klar för org.nr {orgnr}\n"
+                    f"[xZero Scan] Auto-scan klar – {company}",
+                    f"Scan klar för {company} (org.nr {orgnr})\n"
                     f"Kontakt:  {contact_name} <{contact_email}>\n"
                     f"Scan-id:  {scan_id}\n"
                     f"Länk:     {base_url}/#scan-{scan_id}\n"
-                    f"Ref:      {job_id}",
+                    f"Ref:      {job_id}"
+                    + (f"\n{metrics}" if metrics else ""),
                 )
             except Exception as exc:
                 logging.warning(f"[auto-scan] team email failed: {exc}")
 
-        # Notify user
+        # Skicka rapporten till användaren
         first = contact_name.split()[0] if contact_name else ""
         try:
             _send_email(
                 contact_email,
-                "Din Opportunity Scan är klar – xZero",
+                f"Din Opportunity Scan är klar – {company}",
                 f"Hej {first},\n\n"
-                f"Din Opportunity Scan för org.nr {orgnr} är nu klar!\n\n"
-                f"Vi återkommer inom kort med en genomgång av resultaten.\n\n"
+                f"Din Opportunity Scan för {company} är nu klar!"
+                + (f"\n{metrics}" if metrics else "")
+                + f"\n\nVi återkommer inom kort med en genomgång av resultaten.\n\n"
                 f"Referensnummer: {job_id}\n\n"
                 f"Med vänliga hälsningar,\nxZero",
             )

@@ -337,8 +337,37 @@
   }
 
   function pollJobStatus(jobId) {
-    const MAX_POLLS = 72;  // 12 minutes
+    const MAX_POLLS = 72;  // 12 minuter
     let count = 0;
+    let hourglassTimer = null;
+
+    function startHourglass() {
+      if (hourglassTimer) return;
+      const frames = ['⏳','⌛'];
+      let i = 0;
+      hourglassTimer = setInterval(() => {
+        i = (i + 1) % frames.length;
+        document.getElementById('done-icon').textContent = frames[i];
+      }, 900);
+    }
+
+    function stopHourglass() {
+      if (hourglassTimer) { clearInterval(hourglassTimer); hourglassTimer = null; }
+    }
+
+    function showManual() {
+      stopHourglass();
+      document.getElementById('done-icon').textContent  = '✓';
+      document.getElementById('done-title').textContent = 'Vi har tagit emot din förfrågan';
+      document.getElementById('done-body').innerHTML =
+        'Din Opportunity Scan skickas till din e-post inom 24 timmar.' +
+        '<br><br><span class="done-ref">Referens: ' + jobId + '</span>';
+      const badge = document.getElementById('status-badge');
+      badge.className = 'status-badge complete';
+      document.getElementById('status-text').textContent = 'Förfrågan bekräftad';
+    }
+
+    startHourglass();
 
     async function check() {
       count++;
@@ -349,26 +378,20 @@
         const statusTx = document.getElementById('status-text');
 
         if (data.status === 'complete') {
+          stopHourglass();
           document.getElementById('done-icon').textContent  = '✓';
           document.getElementById('done-title').textContent = 'Scan klar!';
           document.getElementById('done-body').innerHTML =
-            'Din Opportunity Scan är genererad. Vi återkommer med en genomgång av resultaten.' +
-            '<br><br><span class="done-ref" id="done-ref">Referens: ' + jobId + '</span>';
+            'Din Opportunity Scan är genererad och skickas till din e-post. ' +
+            'Vi återkommer med en genomgång av resultaten.' +
+            '<br><br><span class="done-ref">Referens: ' + jobId + '</span>';
           badge.className    = 'status-badge complete';
           statusTx.textContent = 'Analysen är klar';
           return;
         }
 
-        if (data.status === 'error') {
-          document.getElementById('done-icon').textContent  = '⚠';
-          document.getElementById('done-title').textContent = 'Något gick fel';
-          const errDetail = data.status_msg || data.error || '';
-          document.getElementById('done-body').innerHTML =
-            'Vi kunde inte generera din scan automatiskt, men vårt team har fått din förfrågan och återkommer inom 24 timmar.' +
-            (errDetail ? '<br><br><code style="font-size:0.75rem;color:#b91c1c">' + errDetail + '</code>' : '') +
-            '<br><br><span class="done-ref">Referens: ' + jobId + '</span>';
-          badge.className    = 'status-badge error';
-          statusTx.textContent = 'Manuell hantering';
+        if (data.status === 'manual' || data.status === 'error') {
+          showManual();
           return;
         }
 
@@ -377,17 +400,7 @@
           statusTx.textContent = data.status_msg || 'Analyserar...';
         }
 
-        if (count >= MAX_POLLS) {
-          // Timeout: fall back to manual message
-          document.getElementById('done-icon').textContent  = '✓';
-          document.getElementById('done-title').textContent = 'Vi har tagit emot din förfrågan';
-          document.getElementById('done-body').innerHTML =
-            'Din Opportunity Scan skickas till din e-post inom 24 timmar.' +
-            '<br><br><span class="done-ref">Referens: ' + jobId + '</span>';
-          badge.className    = 'status-badge pending';
-          statusTx.textContent = 'Bekräftad';
-          return;
-        }
+        if (count >= MAX_POLLS) { showManual(); return; }
       } catch (_) { /* nätverksfel – försök igen */ }
 
       setTimeout(check, 10000);

@@ -14,7 +14,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: TAVILY_API_KEY,BOLAGSVERKET_CLIENT_ID,BOLAGSVERKET_CLIENT_SECRET,BOLAGSVERKET_TOKEN_URL,BOLAGSVERKET_BASE_URL
+          envs: TAVILY_API_KEY,BOLAGSVERKET_CLIENT_ID,BOLAGSVERKET_CLIENT_SECRET,BOLAGSVERKET_TOKEN_URL,BOLAGSVERKET_BASE_URL,SMTP_HOST,SMTP_PORT,SMTP_USER,SMTP_PASS,SMTP_FROM
           script: |
             set -e
             docker image prune -af
@@ -35,6 +35,11 @@ jobs:
             update_env BOLAGSVERKET_CLIENT_SECRET "$BOLAGSVERKET_CLIENT_SECRET"
             update_env BOLAGSVERKET_TOKEN_URL "$BOLAGSVERKET_TOKEN_URL"
             update_env BOLAGSVERKET_BASE_URL "$BOLAGSVERKET_BASE_URL"
+            update_env SMTP_HOST "$SMTP_HOST"
+            update_env SMTP_PORT "$SMTP_PORT"
+            update_env SMTP_USER "$SMTP_USER"
+            update_env SMTP_PASS "$SMTP_PASS"
+            update_env SMTP_FROM "$SMTP_FROM"
             docker compose build --no-cache
             docker compose up -d
         env:
@@ -43,3 +48,8 @@ jobs:
           BOLAGSVERKET_CLIENT_SECRET: ${{ secrets.BOLAGSVERKET_CLIENT_SECRET }}
           BOLAGSVERKET_TOKEN_URL: ${{ secrets.BOLAGSVERKET_TOKEN_URL }}
           BOLAGSVERKET_BASE_URL: ${{ secrets.BOLAGSVERKET_BASE_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
