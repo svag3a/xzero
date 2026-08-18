@@ -362,8 +362,10 @@
         if (data.status === 'error') {
           document.getElementById('done-icon').textContent  = '⚠';
           document.getElementById('done-title').textContent = 'Något gick fel';
+          const errDetail = data.status_msg || data.error || '';
           document.getElementById('done-body').innerHTML =
             'Vi kunde inte generera din scan automatiskt, men vårt team har fått din förfrågan och återkommer inom 24 timmar.' +
+            (errDetail ? '<br><br><code style="font-size:0.75rem;color:#b91c1c">' + errDetail + '</code>' : '') +
             '<br><br><span class="done-ref">Referens: ' + jobId + '</span>';
           badge.className    = 'status-badge error';
           statusTx.textContent = 'Manuell hantering';

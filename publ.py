@@ -149,7 +149,7 @@ def _auto_scan_job(job_id: str, orgnr: str, contact_name: str, contact_email: st
 
     except Exception as exc:
         logging.error(f"[auto-scan] {job_id}: fel: {exc}")
-        _update_job("error", error_msg=str(exc)[:500])
+        _update_job("error", error_msg=str(exc)[:500], msg=str(exc)[:200])
 
 
 @router.get("/publ", response_class=HTMLResponse)
