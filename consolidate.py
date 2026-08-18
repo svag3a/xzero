@@ -30,14 +30,15 @@ def list_scans(api_url: str, admin_token: str):
     resp = requests.get(f"{api_url}/admin/scans", headers=headers, timeout=15)
     resp.raise_for_status()
     scans = resp.json()
-    print(f"{'ID':>5}  {'Bolag':<35}  {'Bransch':<20}  {'Oms MSEK':>9}  {'Potential':>9}  Datum")
-    print("─" * 95)
+    print(f"{'ID':>5}  {'Bolag':<35}  {'Oms MSEK':>9}  {'Potential':>9}  {'Hyp':>4}  Datum")
+    print("─" * 80)
     for s in scans:
+        hyp = "✓" if s.get("has_hypotheses") else "-"
         print(
             f"{s['id']:>5}  {(s['company_name'] or '')[:35]:<35}  "
-            f"{(s['industry'] or '')[:20]:<20}  "
             f"{str(s['revenue_msek'] or ''):>9}  "
             f"{str(s['total_potential_msek'] or ''):>9}  "
+            f"{hyp:>4}  "
             f"{(s['created_at'] or '')[:10]}"
         )
 
