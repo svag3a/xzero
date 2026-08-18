@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
 """
-group_scan.py – OCR + gruppscan för skannade årsredovisningar i S3.
+group_scan.py – Koncernscan: OCR + Tavily per bolag → en samlad Bedrock-analys.
+
+Filstruktur i S3 (ett subfolder per bolag, max 5 PDF:er per bolag):
+  s3://xzero-scans/koncernnamn/
+    Moderbolaget AB/
+      arsred_2023.pdf
+      arsred_2022.pdf
+      ...
+    Dotterbolag 1 AB/
+      arsred_2023.pdf
+      ...
 
 Flöde:
-  1. Listar PDF-filer i S3-bucketen (eller ett prefix)
-  2. Kör AWS Textract async på varje fil
-  3. Väntar på alla jobb, hämtar extraherad text
-  4. Skickar alla texter till /admin/scan-from-texts → Bedrock kör analysen
+  1. Listar subfoldrar → ett bolag per subfolder
+  2. OCR:ar upp till 5 PDF:er per bolag (nyast filnamn sist → sorterat fallande)
+  3. Tavily-sökning per bolag → lägger till som extra textpost
+  4. Skickar allt som ett paket till /admin/scan-from-texts → en Bedrock-analys
 
 Usage:
   python3 group_scan.py \\
@@ -19,12 +29,9 @@ Usage:
     --api-url http://13.48.24.83
 
 Miljövariabler:
-  AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION (eller AWS_REGION)
-  ADMIN_TOKEN  (om satt i appen)
-
-Tips – skapa bucket och ladda upp:
-  aws s3 mb s3://xzero-scans --region eu-north-1
-  aws s3 cp ./arsredovisningar/ s3://xzero-scans/koncernnamn/ --recursive
+  AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
+  TAVILY_API_KEY   (för webinfo per bolag)
+  ADMIN_TOKEN      (om satt i appen)
 """
 
 import argparse
@@ -32,192 +39,234 @@ import os
 import sys
 import time
 import json
-import boto3
 import requests
+import boto3
 
-MAX_WAIT_SECS = 600   # max 10 min per Textract-jobb
-POLL_INTERVAL = 10    # sekunder mellan statuspolling
+MAX_REPORTS_PER_COMPANY = 5
+MAX_CHARS_PER_DOC       = 80_000
+MAX_WAIT_SECS           = 600
+POLL_INTERVAL           = 10
 
 
-def start_textract_job(client, bucket: str, key: str) -> str:
-    resp = client.start_document_text_detection(
+# ── Textract ─────────────────────────────────────────────────────────────────
+
+def start_textract_job(textract, bucket: str, key: str) -> str:
+    resp = textract.start_document_text_detection(
         DocumentLocation={"S3Object": {"Bucket": bucket, "Name": key}}
     )
     return resp["JobId"]
 
 
-def wait_for_textract(client, job_id: str, label: str) -> str:
-    """Väntar på Textract-jobb och returnerar all extraherad text."""
+def wait_for_textract(textract, job_id: str, label: str) -> str:
     elapsed = 0
     while elapsed < MAX_WAIT_SECS:
-        resp = client.get_document_text_detection(JobId=job_id)
+        resp = textract.get_document_text_detection(JobId=job_id)
         status = resp["JobStatus"]
 
         if status == "SUCCEEDED":
             pages = [resp]
-            # Hämta eventuella extra sidor
             while "NextToken" in resp:
-                resp = client.get_document_text_detection(
+                resp = textract.get_document_text_detection(
                     JobId=job_id, NextToken=resp["NextToken"]
                 )
                 pages.append(resp)
-
-            lines = []
-            for page in pages:
-                for block in page.get("Blocks", []):
-                    if block["BlockType"] == "LINE":
-                        lines.append(block["Text"])
+            lines = [
+                b["Text"]
+                for page in pages
+                for b in page.get("Blocks", [])
+                if b["BlockType"] == "LINE"
+            ]
             text = "\n".join(lines)
-            print(f"    {label}: {len(text):,} tecken extraherade")
+            if len(text) > MAX_CHARS_PER_DOC:
+                text = text[:MAX_CHARS_PER_DOC]
+            print(f"      ✓ {len(text):,} tecken")
             return text
 
         if status == "FAILED":
-            raise RuntimeError(f"Textract misslyckades för {label}: {resp.get('StatusMessage','')}")
+            raise RuntimeError(f"Textract misslyckades: {resp.get('StatusMessage','')}")
 
-        print(f"    {label}: status={status}, väntar {POLL_INTERVAL}s...")
+        print(f"      status={status}, väntar {POLL_INTERVAL}s...")
         time.sleep(POLL_INTERVAL)
         elapsed += POLL_INTERVAL
 
-    raise TimeoutError(f"Textract-jobb {job_id} tog för lång tid ({MAX_WAIT_SECS}s)")
+    raise TimeoutError(f"Textract-jobb tog för lång tid (>{MAX_WAIT_SECS}s)")
 
 
-def submit_group_scan(
-    api_url: str,
-    admin_token: str,
-    orgnr: str,
-    company_name: str,
-    contact_name: str,
-    contact_email: str,
-    contact_phone: str,
-    texts: list,
-) -> dict:
-    headers = {"Content-Type": "application/json"}
-    if admin_token:
-        headers["X-Admin-Token"] = admin_token
+# ── Tavily ───────────────────────────────────────────────────────────────────
 
-    resp = requests.post(
-        f"{api_url}/admin/scan-from-texts",
-        headers=headers,
-        json={
-            "orgnr":         orgnr,
-            "company_name":  company_name,
-            "contact_name":  contact_name,
-            "contact_email": contact_email,
-            "contact_phone": contact_phone,
-            "texts":         texts,
-        },
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()
+def fetch_tavily(company_name: str) -> str | None:
+    key = os.environ.get("TAVILY_API_KEY", "")
+    if not key:
+        return None
+    try:
+        resp = requests.post(
+            "https://api.tavily.com/search",
+            json={
+                "api_key":     key,
+                "query":       f"{company_name} verksamhet erbjudande kunder",
+                "max_results": 5,
+            },
+            timeout=20,
+        )
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+        if not results:
+            return None
+        parts = []
+        for r in results:
+            parts.append(f"## {r.get('title','')}\n{r.get('content','')}")
+        return "\n\n".join(parts)[:40_000]
+    except Exception as e:
+        print(f"      Tavily-fel: {e}")
+        return None
 
 
-def main():
-    parser = argparse.ArgumentParser(description="OCR + gruppscan via Textract → xZero")
-    parser.add_argument("--bucket",        required=True,  help="S3-bucket med PDF:erna")
-    parser.add_argument("--prefix",        default="",     help="Prefix/mapp i bucketen (t.ex. 'kund/')")
-    parser.add_argument("--orgnr",         required=True,  help="Org.nr för moderbolaget")
-    parser.add_argument("--company",       default="",     help="Koncernnamn (visas i CRM)")
-    parser.add_argument("--contact-name",  default="",     help="Kontaktpersonens namn")
-    parser.add_argument("--contact-email", default="",     help="Kontaktpersonens e-post")
-    parser.add_argument("--contact-phone", default="",     help="Kontaktpersonens telefon")
-    parser.add_argument("--api-url",       default="http://13.48.24.83", help="App-URL")
-    parser.add_argument("--region",        default="",     help="AWS-region (default: eu-north-1)")
-    parser.add_argument("--dry-run",       action="store_true", help="Kör Textract men skicka inte till appen")
-    args = parser.parse_args()
+# ── S3-helpers ───────────────────────────────────────────────────────────────
 
-    region = args.region or os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "eu-north-1"
-    admin_token = os.environ.get("ADMIN_TOKEN", "")
+def list_company_folders(s3, bucket: str, prefix: str) -> list[str]:
+    """Returnerar unika direkta subfoldrar under prefix."""
+    prefix = prefix.rstrip("/") + "/" if prefix else ""
+    paginator = s3.get_paginator("list_objects_v2")
+    folders = set()
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
+        for cp in page.get("CommonPrefixes", []):
+            folders.add(cp["Prefix"])
+    return sorted(folders)
 
-    s3       = boto3.client("s3",       region_name=region)
-    textract = boto3.client("textract", region_name=region)
 
-    # Lista PDF:er i bucketen
-    print(f"Listar PDF:er i s3://{args.bucket}/{args.prefix}...")
+def list_pdfs_in_folder(s3, bucket: str, folder: str) -> list[str]:
     paginator = s3.get_paginator("list_objects_v2")
     keys = []
-    for page in paginator.paginate(Bucket=args.bucket, Prefix=args.prefix):
+    for page in paginator.paginate(Bucket=bucket, Prefix=folder):
         for obj in page.get("Contents", []):
-            key = obj["Key"]
-            if key.lower().endswith(".pdf"):
-                keys.append(key)
+            if obj["Key"].lower().endswith(".pdf"):
+                keys.append(obj["Key"])
+    # Sortera fallande på filnamn (nyast årsredovisning antas ha högst år i namnet)
+    keys.sort(reverse=True)
+    return keys[:MAX_REPORTS_PER_COMPANY]
 
-    if not keys:
-        print("Inga PDF-filer hittades. Kontrollera bucket och prefix.")
+
+# ── Huvudflöde ───────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(description="Koncernscan: OCR + Tavily → xZero")
+    parser.add_argument("--bucket",        required=True)
+    parser.add_argument("--prefix",        default="",    help="Rot-prefix i bucketen, t.ex. 'koncernnamn/'")
+    parser.add_argument("--orgnr",         required=True, help="Moderbolagets org.nr")
+    parser.add_argument("--company",       default="",    help="Koncernens namn")
+    parser.add_argument("--contact-name",  default="")
+    parser.add_argument("--contact-email", default="")
+    parser.add_argument("--contact-phone", default="")
+    parser.add_argument("--api-url",       default="http://13.48.24.83")
+    parser.add_argument("--region",        default="")
+    parser.add_argument("--dry-run",       action="store_true")
+    args = parser.parse_args()
+
+    region      = args.region or os.environ.get("AWS_DEFAULT_REGION") or "eu-north-1"
+    admin_token = os.environ.get("ADMIN_TOKEN", "")
+    s3          = boto3.client("s3",       region_name=region)
+    textract    = boto3.client("textract", region_name=region)
+
+    # ── 1. Hitta bolag (subfoldrar) ──────────────────────────────────────────
+    print(f"Listar bolag i s3://{args.bucket}/{args.prefix}...")
+    folders = list_company_folders(s3, args.bucket, args.prefix)
+
+    if not folders:
+        print("Inga subfoldrar hittades. Skapa en subfolder per bolag.")
         sys.exit(1)
 
-    print(f"  Hittade {len(keys)} PDF-filer:")
-    for k in keys:
-        print(f"    {k}")
-    print()
+    company_names = [f.rstrip("/").split("/")[-1] for f in folders]
+    print(f"  {len(folders)} bolag: {', '.join(company_names)}\n")
 
-    # Starta Textract-jobb för alla
-    print("Startar Textract-jobb...")
-    jobs = []
-    for key in keys:
-        label = key.split("/")[-1].replace(".pdf", "").replace(".PDF", "")
-        job_id = start_textract_job(textract, args.bucket, key)
-        jobs.append({"key": key, "label": label, "job_id": job_id})
-        print(f"  {label} → job_id={job_id}")
+    # ── 2. OCR per bolag ─────────────────────────────────────────────────────
+    all_texts = []
 
-    print()
+    for folder, company_name in zip(folders, company_names):
+        print(f"── {company_name} ──")
 
-    # Vänta på och hämta resultat
-    print("Väntar på Textract-resultat...")
-    texts = []
-    errors = []
-    for job in jobs:
-        print(f"  [{job['label']}]")
-        try:
-            text = wait_for_textract(textract, job["job_id"], job["label"])
-            # Trunkera till 80 000 tecken per dokument för att hålla tokenbudget
-            MAX_CHARS = 80_000
-            if len(text) > MAX_CHARS:
-                print(f"    → trunkerar till {MAX_CHARS:,} tecken")
-                text = text[:MAX_CHARS]
-            texts.append({"label": job["label"], "text": text})
-        except Exception as e:
-            print(f"    FEL: {e}")
-            errors.append(job["label"])
+        pdf_keys = list_pdfs_in_folder(s3, args.bucket, folder)
+        if not pdf_keys:
+            print("  Inga PDF:er, hoppar över")
+            continue
 
-    print()
-    print(f"OCR klar: {len(texts)} dokument lyckades, {len(errors)} misslyckades")
-    if errors:
-        print(f"  Misslyckades: {', '.join(errors)}")
+        print(f"  {len(pdf_keys)} årsredovisningar – startar Textract-jobb...")
+        jobs = []
+        for key in pdf_keys:
+            filename = key.split("/")[-1].replace(".pdf","").replace(".PDF","")
+            job_id = start_textract_job(textract, args.bucket, key)
+            jobs.append({"key": key, "filename": filename, "job_id": job_id})
+            print(f"    → {filename}")
 
-    if not texts:
+        print()
+        for job in jobs:
+            label = f"{company_name} – {job['filename']}"
+            print(f"  Hämtar: {job['filename']}")
+            try:
+                text = wait_for_textract(textract, job["job_id"], label)
+                all_texts.append({"label": label, "text": text})
+            except Exception as e:
+                print(f"      FEL: {e}")
+
+        # ── 3. Tavily per bolag ──────────────────────────────────────────────
+        print(f"  Hämtar webbinfo för {company_name}...")
+        web_text = fetch_tavily(company_name)
+        if web_text:
+            all_texts.append({
+                "label": f"{company_name} – Webbinfo",
+                "text":  web_text,
+            })
+            print(f"      ✓ {len(web_text):,} tecken")
+        else:
+            print(f"      Ingen webbinfo (TAVILY_API_KEY saknas eller inga resultat)")
+        print()
+
+    # ── Sammanfattning ───────────────────────────────────────────────────────
+    print(f"{'═'*50}")
+    print(f"  Totalt {len(all_texts)} textposter klara:")
+    for t in all_texts:
+        print(f"    {t['label'][:60]:<60}  {len(t['text']):>8,} tecken")
+    print(f"{'═'*50}\n")
+
+    if not all_texts:
         print("Inga texter att analysera. Avslutar.")
         sys.exit(1)
 
     if args.dry_run:
-        print("\n[dry-run] Skulle skickat följande till /admin/scan-from-texts:")
-        for t in texts:
-            print(f"  {t['label']}: {len(t['text']):,} tecken")
+        print("[dry-run] Skickar inte till appen.")
         sys.exit(0)
 
-    # Skicka till appen
-    print(f"\nSkickar till {args.api_url}/admin/scan-from-texts...")
+    # ── 4. Skicka till appen ─────────────────────────────────────────────────
+    print(f"Skickar till {args.api_url}/admin/scan-from-texts...")
+    headers = {"Content-Type": "application/json"}
+    if admin_token:
+        headers["X-Admin-Token"] = admin_token
+
     try:
-        result = submit_group_scan(
-            api_url=args.api_url,
-            admin_token=admin_token,
-            orgnr=args.orgnr,
-            company_name=args.company,
-            contact_name=args.contact_name,
-            contact_email=args.contact_email,
-            contact_phone=args.contact_phone,
-            texts=texts,
+        resp = requests.post(
+            f"{args.api_url}/admin/scan-from-texts",
+            headers=headers,
+            json={
+                "orgnr":         args.orgnr,
+                "company_name":  args.company,
+                "contact_name":  args.contact_name,
+                "contact_email": args.contact_email,
+                "contact_phone": args.contact_phone,
+                "texts":         all_texts,
+            },
+            timeout=30,
         )
-        print(f"  OK: {result}")
-        print()
-        print("Bedrock-analysen körs nu i bakgrunden på servern.")
-        print("Resultatet sparas automatiskt i CRM:et och skickas till kontaktpersonen när det är klart.")
+        resp.raise_for_status()
+        print(f"  OK: {resp.json()}")
     except requests.HTTPError as e:
         print(f"  FEL {e.response.status_code}: {e.response.text}")
         sys.exit(1)
     except Exception as e:
         print(f"  FEL: {e}")
         sys.exit(1)
+
+    print()
+    print("Bedrock-analysen körs nu i bakgrunden på servern (~5–15 min för en hel koncern).")
+    print("Resultatet sparas i CRM:et och skickas till kontaktpersonen när det är klart.")
 
 
 if __name__ == "__main__":
