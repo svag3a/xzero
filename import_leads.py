@@ -136,6 +136,24 @@ def submit_scan(api_url: str, orgnr: str, company_name: str, email: str, phone: 
     return resp.json()
 
 
+def load_already_sent(log_dir="."):
+    """Returnerar set av org.nr som redan skickats (result=ok) i tidigare körningar."""
+    sent = set()
+    for fname in os.listdir(log_dir):
+        if not fname.startswith("import_log_") or not fname.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(log_dir, fname), encoding="utf-8") as f:
+                for row in json.load(f):
+                    if row.get("result") == "ok":
+                        orgnr = row.get("orgnr", "")
+                        if orgnr:
+                            sent.add(orgnr)
+        except Exception:
+            pass
+    return sent
+
+
 def main():
     parser = argparse.ArgumentParser(description="Batch-import av bolag till xZero Opportunity Scan")
     parser.add_argument("excel", help="Sökväg till Excel-filen")
@@ -152,6 +170,9 @@ def main():
         if args.statuses
         else DEFAULT_STATUSES
     )
+
+    # Läs tidigare körningar för att undvika dubbletter
+    already_sent = load_already_sent(os.path.dirname(os.path.abspath(__file__)))
 
     print(f"Läser {args.excel}...")
     wb = openpyxl.load_workbook(args.excel, read_only=True, data_only=True)
@@ -179,6 +200,13 @@ def main():
         })
 
     print(f"  {len(candidates)} bolag matchar statuses: {', '.join(sorted(target_statuses))}")
+
+    # Filtrera bort redan inskickade
+    before = len(candidates)
+    candidates = [c for c in candidates if c["orgnr"] not in already_sent]
+    skipped_dups = before - len(candidates)
+    if skipped_dups:
+        print(f"  {skipped_dups} bolag hoppar över (redan inskickade i tidigare körning)")
 
     if args.limit:
         candidates = candidates[: args.limit]

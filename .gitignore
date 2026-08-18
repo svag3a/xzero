@@ -11,6 +11,12 @@ build/
 # Database (lives in Docker volume on server, not in repo)
 scans.db
 
+# Prospekt-data (stora filer, skapas lokalt vid körning)
+scb_bulkfil.zip
+prospect_scan_state.json
+prospect_log_*.json
+import_log_*.json
+
 # Node
 node_modules/
 package-lock.json
