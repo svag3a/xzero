@@ -72,7 +72,13 @@ def _fetch_ixbrl_text(doc_id: str, token: str) -> str:
             raise ValueError(f"Ingen .xhtml i ZIP för dokument {doc_id}")
         content = z.read(xhtml_files[0]).decode("utf-8", errors="replace")
     soup = BeautifulSoup(content, "lxml")
-    return soup.get_text(separator="\n", strip=True)
+    text = soup.get_text(separator="\n", strip=True)
+    # iXBRL-dokument kan vara mycket stora — trunkera för att hålla tokenbudget
+    MAX_CHARS = 80_000
+    if len(text) > MAX_CHARS:
+        logging.warning(f"[bolagsverket] {doc_id}: {len(text):,} tecken, trunkerar till {MAX_CHARS:,}")
+        text = text[:MAX_CHARS]
+    return text
 
 
 def get_annual_report_texts(orgnr: str, max_years: int = 3) -> list[tuple[str, str]]:

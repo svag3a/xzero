@@ -3526,7 +3526,7 @@ def _run_bedrock_from_texts(texts: list[tuple[str, str]]) -> str:
 
     msg = client.messages.create(
         model="us.anthropic.claude-sonnet-4-6",
-        max_tokens=8000,
+        max_tokens=16000,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": content}],
     )
