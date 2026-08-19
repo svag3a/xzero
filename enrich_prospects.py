@@ -111,6 +111,7 @@ def search_contact(company_name: str, titles: list) -> str:
     client = TavilyClient(api_key=api_key)
     title_str = " OR ".join(titles[:3])
     queries = [
+        f"{company_name} VD",
         f"{company_name} {titles[0]}",
         f"{company_name} kontakt {title_str}",
         f"{company_name} ledning styrelse",
