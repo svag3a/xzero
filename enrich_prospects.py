@@ -63,14 +63,28 @@ def save_state(state: dict):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
-def fetch_prospects(api_url: str) -> list:
-    resp = requests.get(f"{api_url}/api/crm", timeout=30)
+def get_session(api_url: str, password: str) -> requests.Session:
+    sess = requests.Session()
+    if not password:
+        return sess
+    resp = sess.post(
+        f"{api_url}/login",
+        data={"password": password, "next": "/"},
+        allow_redirects=False,
+        timeout=15,
+    )
+    if resp.status_code not in (302, 303):
+        raise RuntimeError(f"Login misslyckades (HTTP {resp.status_code})")
+    return sess
+
+
+def fetch_prospects(api_url: str, sess: requests.Session) -> list:
+    resp = sess.get(f"{api_url}/api/crm", timeout=30)
+    if resp.status_code == 401 or (resp.status_code == 200 and not resp.text.strip()):
+        raise RuntimeError("Ej autentiserad — ange --password")
     resp.raise_for_status()
     leads = resp.json()
-    return [
-        l for l in leads
-        if l.get("status") == "Prospekt"
-    ]
+    return [l for l in leads if l.get("status") == "Prospekt"]
 
 
 def needs_enrichment(lead: dict) -> bool:
@@ -193,8 +207,8 @@ def extract_domain(homepage: str) -> str:
     return m.group(1).lower() if m else ""
 
 
-def patch_lead(api_url: str, lead_id: str, contact_name: str,
-               contact_email: str, notes_append: str = ""):
+def patch_lead(api_url: str, sess: requests.Session, lead_id: str,
+               contact_name: str, contact_email: str):
     payload = {}
     if contact_name:
         payload["contact_name"] = contact_name
@@ -202,13 +216,15 @@ def patch_lead(api_url: str, lead_id: str, contact_name: str,
         payload["contact_email"] = contact_email
     if not payload:
         return
-    resp = requests.patch(f"{api_url}/api/crm/{lead_id}", json=payload, timeout=30)
+    resp = sess.patch(f"{api_url}/api/crm/{lead_id}", json=payload, timeout=30)
     resp.raise_for_status()
 
 
 def main():
     parser = argparse.ArgumentParser(description="Berika Prospekt-leads med kontaktperson")
     parser.add_argument("--api-url",    default="http://13.48.24.83")
+    parser.add_argument("--password",   default=os.environ.get("APP_PASSWORD", ""),
+                        help="App-lösenord (eller sätt APP_PASSWORD i env)")
     parser.add_argument("--batch-size", type=int, default=10)
     parser.add_argument("--dry-run",    action="store_true")
     parser.add_argument("--reset",      action="store_true", help="Nollställ state")
@@ -218,6 +234,7 @@ def main():
         os.remove(STATE_FILE)
         print("State nollställd")
 
+    sess = get_session(args.api_url, args.password)
     state = load_state()
 
     # Läs prospect_scan_state för att få homepage per orgnr
@@ -229,7 +246,7 @@ def main():
         except Exception:
             pass
 
-    prospects = fetch_prospects(args.api_url)
+    prospects = fetch_prospects(args.api_url, sess)
     print(f"Totalt Prospekt i CRM: {len(prospects)}")
 
     to_enrich = [
@@ -300,7 +317,7 @@ def main():
 
         if not args.dry_run:
             try:
-                patch_lead(args.api_url, lid, name, email)
+                patch_lead(args.api_url, sess, lid, name, email)
             except Exception as e:
                 print(f"  PATCH fel: {e}")
                 stats["errors"] += 1
