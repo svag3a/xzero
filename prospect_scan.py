@@ -6,20 +6,18 @@ Flöde:
   1. Läser SCB-bulkfil (scb_bulkfil.zip) → aktiva AB i målbranscher
   2. Hämtar omsättning per bolag via allabolag.se (per-bolagssida, ingen cap)
   3. Filtrerar på omsättning >= --min-revenue MSEK
-  4. Berikar e-post via Tavily + Claude (om --enrich), annars används allabolag-mail
-  5. Skickar till WasteZero-appen (om inte --dry-run)
+  4. Skickar till WasteZero-appen som Prospekt-leads (om inte --dry-run)
 
 Körs i omgångar – sparar vilka org.nr som kollerats i state-filen
 (prospect_scan_state.json) och fortsätter där det slutade.
 
-Usage:
-  python3 prospect_scan.py --min-revenue 150 --enrich --api-url http://13.48.24.83
-  python3 prospect_scan.py --min-revenue 150 --dry-run --batch-size 50
-  python3 prospect_scan.py --list-candidates          # visa utan att köra
+E-postberikelse hanteras separat av enrich_prospects.py efter att
+alla bolag genomsökts.
 
-Miljövariabler:
-  TAVILY_API_KEY     (krävs för --enrich)
-  ANTHROPIC_API_KEY  (krävs för --enrich)
+Usage:
+  python3 prospect_scan.py --min-revenue 150 --api-url http://13.48.24.83
+  python3 prospect_scan.py --min-revenue 150 --dry-run --batch-size 50
+  python3 prospect_scan.py --list-candidates
 """
 
 import argparse
@@ -241,61 +239,6 @@ def load_already_sent(log_dir: str) -> set:
     return sent
 
 
-# ── Enrichment ────────────────────────────────────────────────────────────────
-
-def enrich_email(company_name: str, orgnr: str) -> Optional[str]:
-    tavily_key = os.environ.get("TAVILY_API_KEY", "")
-    if not tavily_key:
-        return None
-    try:
-        resp = requests.post(
-            "https://api.tavily.com/search",
-            json={
-                "api_key": tavily_key,
-                "query":   f'"{company_name}" kontakt e-post email',
-                "max_results": 5,
-            },
-            timeout=15,
-        )
-        resp.raise_for_status()
-        results = resp.json().get("results", [])
-        if not results:
-            return None
-        search_text = "\n\n".join(
-            f"{r.get('title','')}\n{r.get('content','')}" for r in results
-        )
-    except Exception as e:
-        log.debug(f"  [{orgnr}] Tavily-fel: {e}")
-        return None
-
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not anthropic_key:
-        return None
-    try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=anthropic_key)
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=100,
-            messages=[{"role": "user", "content": (
-                f"Bolag: {company_name} (org.nr {orgnr})\n\n"
-                f"Sökresultat:\n{search_text[:3000]}\n\n"
-                "Extrahera EN e-postadress (innehåller @) som troligen tillhör detta bolag. "
-                "Svara med BARA e-postadressen (t.ex. info@foretaget.se). "
-                "Om ingen hittades, svara med exakt: NONE."
-            )}],
-        )
-        result = msg.content[0].text.strip().strip('"').strip("'")
-        if result.upper() == "NONE" or "@" not in result:
-            return None
-        parts = result.split("@")
-        if len(parts) == 2 and "." in parts[1] and " " not in result and len(result) > 5:
-            return result.lower()
-    except Exception as e:
-        log.debug(f"  [{orgnr}] Claude-fel: {e}")
-    return None
-
-
 # ── Submission ────────────────────────────────────────────────────────────────
 
 def submit_scan(api_url: str, orgnr: str, company_name: str, email: str,
@@ -326,8 +269,6 @@ def main():
     parser.add_argument("--max-revenue",     type=float, default=None)
     parser.add_argument("--batch-size",      type=int,   default=30,
                         help="Bolag att kolla per körning (default: 30)")
-    parser.add_argument("--enrich",          action="store_true",
-                        help="Sök e-post via Tavily+Claude")
     parser.add_argument("--dry-run",         action="store_true")
     parser.add_argument("--delay",           type=float, default=2.0,
                         help="Sekunder mellan allabolag-anrop (default: 2.0)")
@@ -453,8 +394,8 @@ def main():
     print(f"Totalt att skicka: {len(candidates)} bolag")
     print(f"{'═'*60}\n")
 
-    # ── Fas 2: Berika och skicka ─────────────────────────────────────────────
-    stats    = {"submitted": 0, "enriched": 0, "no_email": 0, "errors": 0}
+    # ── Fas 2: Skicka ────────────────────────────────────────────────────────
+    stats    = {"submitted": 0, "errors": 0}
     log_rows = []
 
     for i, c in enumerate(candidates, 1):
@@ -465,16 +406,6 @@ def main():
         phone        = c.get("phone", "")
 
         prefix = f"[{i}/{len(candidates)}] {company_name[:45]} ({orgnr}) {rev:.0f} MSEK"
-
-        if not email and args.enrich:
-            print(f"{prefix} – söker e-post...", end=" ", flush=True)
-            email = enrich_email(company_name, orgnr) or ""
-            if email:
-                print(f"→ {email}")
-                stats["enriched"] += 1
-            else:
-                print("→ ingen e-post")
-                stats["no_email"] += 1
 
         if args.dry_run:
             print(f"{prefix} – [dry-run] → {email or '(ingen mail)'}")
@@ -513,10 +444,8 @@ def main():
 
     print()
     print("═" * 60)
-    print(f"  Skickade:          {stats['submitted']}")
-    print(f"  Berikade e-poster: {stats['enriched']}")
-    print(f"  Hoppade (no mail): {stats['no_email']}")
-    print(f"  Fel:               {stats['errors']}")
+    print(f"  Skickade:  {stats['submitted']}")
+    print(f"  Fel:       {stats['errors']}")
     remaining = len(unchecked) - len(batch)
     if remaining > 0:
         print(f"\n  Obearbetade kvar:  {remaining} bolag")
