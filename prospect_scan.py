@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-prospect_scan.py – Hitta prospektbolag via SCB-filen + Bolagsverket iXBRL.
+prospect_scan.py – Hitta prospektbolag via SCB-filen + allabolag.se.
 
 Flöde:
   1. Läser SCB-bulkfil (scb_bulkfil.zip) → aktiva AB i målbranscher
-  2. Hämtar senaste årsredovisning per bolag via Bolagsverket API
-  3. Extraherar omsättning direkt från XBRL-taggar (ingen LLM behövs)
-  4. Filtrerar på omsättning >= --min-revenue MSEK
-  5. Berikar e-post via Tavily + Claude (om --enrich)
-  6. Skickar till WasteZero-appen (om inte --dry-run)
+  2. Hämtar omsättning per bolag via allabolag.se (per-bolagssida, ingen cap)
+  3. Filtrerar på omsättning >= --min-revenue MSEK
+  4. Berikar e-post via Tavily + Claude (om --enrich), annars används allabolag-mail
+  5. Skickar till WasteZero-appen (om inte --dry-run)
 
 Körs i omgångar – sparar vilka org.nr som kollerats i state-filen
 (prospect_scan_state.json) och fortsätter där det slutade.
@@ -19,14 +18,11 @@ Usage:
   python3 prospect_scan.py --list-candidates          # visa utan att köra
 
 Miljövariabler:
-  BOLAGSVERKET_CLIENT_ID      (krävs)
-  BOLAGSVERKET_CLIENT_SECRET  (krävs)
-  TAVILY_API_KEY              (krävs för --enrich)
-  ANTHROPIC_API_KEY           (krävs för --enrich)
+  TAVILY_API_KEY     (krävs för --enrich)
+  ANTHROPIC_API_KEY  (krävs för --enrich)
 """
 
 import argparse
-import io
 import json
 import logging
 import os
@@ -35,7 +31,6 @@ import sys
 import time
 import zipfile
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 import requests
@@ -53,186 +48,102 @@ TARGET_SNI = {
     "52240",  # Godshantering
     "52249",  # Annan stödtjänst till lufttransport
     "52290",  # Övrig stödtjänst till transport
-    "46311",  # Partihandel med spannmål, råolja och råfett m.m.
+    "46311",  # Partihandel med spannmål m.m.
     "46312",  # Partihandel med animala råvaror
     "46313",  # Partihandel med frukt och grönsaker
     "46320",  # Partihandel med kött och köttvaror
-    "46330",  # Partihandel med mejeriprodukter, ägg och matolja
+    "46330",  # Partihandel med mejeriprodukter
     "46340",  # Partihandel med drycker
     "46380",  # Partihandel med övriga livsmedel
-    "46390",  # Partihandel med livsmedel, drycker och tobak i sortiment
+    "46390",  # Partihandel med livsmedel i sortiment
     "10110",  # Charkuteri- och annan köttvaruframställning
-    "10510",  # Framställning av mjölk och andra mjölkprodukter
-    "10200",  # Beredning och konservering av fisk, kräftdjur och blötdjur
+    "10510",  # Framställning av mjölkprodukter
+    "10200",  # Beredning och konservering av fisk
 }
 
 SCB_URL = "https://vardefulla-datamangder.bolagsverket.se/scb/scb_bulkfil.zip"
 
-# Bolagsverket API
-_TOKEN_URL  = "https://portal.api.bolagsverket.se/oauth2/token"
-_BASE_URL   = "https://gw.api.bolagsverket.se/vardefulla-datamangder/v1"
-_SCOPE      = "vardefulla-datamangder:read"
+_ALLABOLAG_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "sv-SE,sv;q=0.9,en;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
 
-# XBRL-taggar för omsättning (svenska årsredovisningar)
-_REVENUE_XBRL_NAMES = [
-    "se-cd:NetSalesRevenues",
-    "se-gen:NetSalesRevenues",
-    "se-cd-base:NetSalesRevenues",
-    "ifrs-full:Revenue",
-    "ifrs:Revenue",
-    "se:NetSalesRevenues",
-    "bv:NetSalesRevenues",
-    "bv-base:NetSalesRevenues",
-]
-
-# ── Bolagsverket API-hjälpare ─────────────────────────────────────────────────
-
-_cached_token: Optional[str] = None
-_token_expires_at: float = 0.0
+_session: Optional[requests.Session] = None
 
 
-def _get_token() -> str:
-    global _cached_token, _token_expires_at
-    if _cached_token and time.time() < _token_expires_at - 60:
-        return _cached_token
-    client_id     = os.environ["BOLAGSVERKET_CLIENT_ID"]
-    client_secret = os.environ["BOLAGSVERKET_CLIENT_SECRET"]
-    resp = requests.post(
-        _TOKEN_URL,
-        auth=(client_id, client_secret),
-        data={"grant_type": "client_credentials", "scope": _SCOPE},
-        timeout=15,
-    )
-    if not resp.ok:
-        raise RuntimeError(f"Token-fel {resp.status_code}: {resp.text[:200]}")
-    data = resp.json()
-    _cached_token   = data["access_token"]
-    _token_expires_at = time.time() + data.get("expires_in", 3600)
-    return _cached_token
+def _get_session() -> requests.Session:
+    global _session
+    if _session is None:
+        _session = requests.Session()
+        _session.headers.update(_ALLABOLAG_HEADERS)
+    return _session
 
 
-def _doc_list(orgnr: str) -> list:
-    token = _get_token()
-    resp  = requests.post(
-        f"{_BASE_URL}/dokumentlista",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"identitetsbeteckning": orgnr},
-        timeout=30,
-    )
-    if resp.status_code == 404:
-        return []
-    resp.raise_for_status()
-    return resp.json().get("dokument", [])
+# ── allabolag.se per-bolag ────────────────────────────────────────────────────
 
-
-def _fetch_ixbrl_zip(doc_id: str) -> bytes:
-    token = _get_token()
-    resp  = requests.get(
-        f"{_BASE_URL}/dokument/{doc_id}",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/zip"},
-        timeout=120,
-    )
-    resp.raise_for_status()
-    return resp.content
-
-
-def _extract_revenue_from_ixbrl(zip_bytes: bytes) -> Optional[float]:
-    """Returnerar omsättning i MSEK från iXBRL-ZIP, eller None."""
-    try:
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
-            xhtml_files = [n for n in z.namelist() if n.lower().endswith(".xhtml")]
-            if not xhtml_files:
-                return None
-            content = z.read(xhtml_files[0]).decode("utf-8", errors="replace")
-    except Exception:
-        return None
-
-    # Sök efter XBRL-taggar för omsättning
-    # Mönster: <ix:nonFraction name="se-cd:NetSalesRevenues" ... >12345678</ix:nonFraction>
-    # Värdet är vanligen i SEK (heltal) eller tkr med scale-attribut
-    pattern = re.compile(
-        r'<ix:nonFraction\s[^>]*name="([^"]+)"[^>]*scale="([^"]*)"[^>]*>([^<]+)</ix:nonFraction>',
-        re.IGNORECASE,
-    )
-    # Alternativt utan scale
-    pattern2 = re.compile(
-        r'<ix:nonFraction\s[^>]*name="([^"]+)"[^>]*>([^<]+)</ix:nonFraction>',
-        re.IGNORECASE,
-    )
-
-    for m in pattern.finditer(content):
-        tag_name, scale_str, raw_val = m.group(1), m.group(2), m.group(3)
-        if tag_name not in _REVENUE_XBRL_NAMES:
-            continue
-        val = _parse_numeric(raw_val, scale_str)
-        if val is not None:
-            return val / 1_000_000  # SEK → MSEK
-
-    # Fallback utan scale-attribut
-    for m in pattern2.finditer(content):
-        tag_name, raw_val = m.group(1), m.group(2)
-        if tag_name not in _REVENUE_XBRL_NAMES:
-            continue
-        val = _parse_numeric(raw_val, "")
-        if val is not None and val > 100_000:  # antar SEK om > 100k
-            return val / 1_000_000
-
-    return None
-
-
-def _parse_numeric(raw: str, scale: str) -> Optional[float]:
-    s = raw.strip().replace(" ", "").replace(" ", "").replace(",", ".")
-    # ta bort ev. tusenavskiljare (punkt) om det finns decimaler
-    try:
-        val = float(s)
-    except ValueError:
-        return None
-    try:
-        exp = int(scale) if scale else 0
-    except ValueError:
-        exp = 0
-    return val * (10 ** exp)
-
-
-def lookup_revenue(orgnr: str) -> Optional[float]:
+def _fetch_allabolag(orgnr: str) -> Optional[dict]:
     """
-    Returnerar omsättning i MSEK för ett bolag via Bolagsverkets iXBRL-API.
-    Returnerar None om:
-      - inga dokument finns
-      - omsättningen inte kan parsas
+    Hämtar bolagsdata från allabolag.se via orgnr-redirect.
+    Returnerar company-dict ur __NEXT_DATA__, eller None vid fel.
+
+    Revenue-fältet är i kSEK (tusen SEK), samma enhet som segmenterings-API:t.
     """
-    docs = _doc_list(orgnr)
-    if not docs:
+    sess = _get_session()
+    try:
+        resp = sess.get(
+            f"https://www.allabolag.se/{orgnr}",
+            timeout=20,
+            allow_redirects=True,
+        )
+        if not resp.ok:
+            return None
+        m = re.search(
+            r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
+            resp.text,
+            re.DOTALL,
+        )
+        if not m:
+            return None
+        data   = json.loads(m.group(1))
+        return data.get("props", {}).get("pageProps", {}).get("company")
+    except Exception as exc:
+        log.debug(f"  [{orgnr}] allabolag-fel: {exc}")
         return None
 
-    docs.sort(key=lambda d: d.get("rapporteringsperiodTom", ""), reverse=True)
 
-    for doc in docs[:2]:   # prova senaste, sedan näst senaste
-        doc_id = doc.get("dokumentId", "")
-        if not doc_id:
-            continue
-        try:
-            zip_bytes = _fetch_ixbrl_zip(doc_id)
-            rev = _extract_revenue_from_ixbrl(zip_bytes)
-            if rev is not None:
-                return rev
-        except Exception as exc:
-            log.debug(f"  [{orgnr}] dok-fel {doc_id}: {exc}")
+def lookup_company(orgnr: str) -> Optional[dict]:
+    """
+    Returnerar dict med revenue_msek, phone, email, homepage.
+    revenue_msek = None om inte hittas eller omsättning saknas.
+    """
+    company = _fetch_allabolag(orgnr)
+    if not company:
+        return None
 
-    return None
+    rev_raw = company.get("revenue")
+    try:
+        rev_ksek = float(rev_raw)
+        rev_msek = rev_ksek / 1000.0  # kSEK → MSEK
+    except (TypeError, ValueError):
+        rev_msek = None
+
+    return {
+        "revenue_msek": rev_msek,
+        "phone":        str(company.get("phone") or company.get("legalPhone") or ""),
+        "email":        (company.get("email") or "").lower().strip(),
+        "homepage":     company.get("homePage") or "",
+        "employees":    company.get("numberOfEmployees"),
+    }
 
 
 # ── SCB-fil ───────────────────────────────────────────────────────────────────
 
-def load_scb_companies(scb_zip_path: Optional[str] = None) -> list[dict]:
-    """
-    Laddar aktiva AB i målbranscher från SCB-filen.
-    Laddar ned filen om den inte finns (eller om --refresh-scb är satt).
-    """
+def load_scb_companies(scb_zip_path: Optional[str] = None) -> list:
     cache_path = scb_zip_path or os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "scb_bulkfil.zip"
     )
-
     if not os.path.exists(cache_path):
         log.info(f"Laddar ned SCB-fil från {SCB_URL}...")
         resp = requests.get(SCB_URL, stream=True, timeout=300)
@@ -261,13 +172,12 @@ def load_scb_companies(scb_zip_path: Optional[str] = None) -> list[dict]:
                     continue
                 if row[ng1_idx] not in TARGET_SNI:
                     continue
-                if row[jurform_idx] != "49":   # 49 = Aktiebolag i SCB:s kodning
+                if row[jurform_idx] != "49":   # 49 = AB i SCB:s kodning
                     continue
-                if row[ftgstat_idx] != "1":    # 1 = aktivt driftsställe
+                if row[ftgstat_idx] != "1":    # 1 = aktivt
                     continue
 
                 raw = row[orgnr_idx]
-                # SCB-filen har 12-siffriga PeOrgNr med "16"-prefix
                 if len(raw) == 12 and raw.startswith("16"):
                     orgnr = raw[2:]
                 elif len(raw) == 10 and raw.isdigit():
@@ -276,16 +186,16 @@ def load_scb_companies(scb_zip_path: Optional[str] = None) -> list[dict]:
                     continue
 
                 companies.append({
-                    "orgnr": orgnr,
+                    "orgnr":        orgnr,
                     "company_name": row[namn_idx],
-                    "sni": row[ng1_idx],
+                    "sni":          row[ng1_idx],
                 })
 
     log.info(f"SCB: {len(companies)} aktiva AB i målbranscher")
     return companies
 
 
-# ── State (vilka org.nr har kollerats) ───────────────────────────────────────
+# ── State ─────────────────────────────────────────────────────────────────────
 
 def load_state(state_path: str) -> dict:
     if os.path.exists(state_path):
@@ -294,7 +204,7 @@ def load_state(state_path: str) -> dict:
                 return json.load(f)
         except Exception:
             pass
-    return {}   # {orgnr: {"revenue_msek": float|None, "checked_at": str}}
+    return {}
 
 
 def save_state(state: dict, state_path: str):
@@ -334,7 +244,7 @@ def enrich_email(company_name: str, orgnr: str) -> Optional[str]:
             "https://api.tavily.com/search",
             json={
                 "api_key": tavily_key,
-                "query": f'"{company_name}" kontakt e-post email',
+                "query":   f'"{company_name}" kontakt e-post email',
                 "max_results": 5,
             },
             timeout=15,
@@ -399,41 +309,30 @@ def submit_scan(api_url: str, orgnr: str, company_name: str, email: str, phone: 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Prospektera bolag via SCB + Bolagsverket iXBRL")
-    parser.add_argument("--min-revenue",   type=float, default=150.0,
-                        help="Lägsta omsättning i MSEK (default: 150)")
-    parser.add_argument("--max-revenue",   type=float, default=None)
-    parser.add_argument("--batch-size",    type=int,   default=30,
-                        help="Antal bolag att kolla per körning (default: 30)")
-    parser.add_argument("--enrich",        action="store_true",
+    parser = argparse.ArgumentParser(description="Prospektera bolag via SCB + allabolag.se")
+    parser.add_argument("--min-revenue",     type=float, default=150.0,
+                        help="Lägsta omsättning MSEK (default: 150)")
+    parser.add_argument("--max-revenue",     type=float, default=None)
+    parser.add_argument("--batch-size",      type=int,   default=30,
+                        help="Bolag att kolla per körning (default: 30)")
+    parser.add_argument("--enrich",          action="store_true",
                         help="Sök e-post via Tavily+Claude")
-    parser.add_argument("--dry-run",       action="store_true")
-    parser.add_argument("--delay",         type=float, default=1.5,
-                        help="Sekunder mellan Bolagsverket-anrop (default: 1.5)")
-    parser.add_argument("--api-url",       default="http://13.48.24.83")
-    parser.add_argument("--scb-file",      default=None,
-                        help="Sökväg till SCB-zip (default: scb_bulkfil.zip i skriptets katalog)")
-    parser.add_argument("--state-file",    default=None,
-                        help="Sökväg till state-JSON (default: prospect_scan_state.json)")
+    parser.add_argument("--dry-run",         action="store_true")
+    parser.add_argument("--delay",           type=float, default=2.0,
+                        help="Sekunder mellan allabolag-anrop (default: 2.0)")
+    parser.add_argument("--api-url",         default="http://13.48.24.83")
+    parser.add_argument("--scb-file",        default=None)
+    parser.add_argument("--state-file",      default=None)
     parser.add_argument("--list-candidates", action="store_true",
-                        help="Lista bolag som ännu inte kollerats och avsluta")
-    parser.add_argument("--reset-state",   action="store_true",
-                        help="Nollställ state-filen och börja om från början")
+                        help="Lista bolag ej kollade och avsluta")
+    parser.add_argument("--reset-state",     action="store_true",
+                        help="Nollställ state och börja om")
     args = parser.parse_args()
 
-    script_dir  = os.path.dirname(os.path.abspath(__file__))
-    state_path  = args.state_file  or os.path.join(script_dir, "prospect_scan_state.json")
-    log_dir     = script_dir
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    state_path = args.state_file or os.path.join(script_dir, "prospect_scan_state.json")
+    log_dir    = script_dir
 
-    # ── Kontrollera Bolagsverket-nycklar ──────────────────────────────────────
-    if not os.environ.get("BOLAGSVERKET_CLIENT_ID"):
-        print("FEL: BOLAGSVERKET_CLIENT_ID saknas i miljön")
-        sys.exit(1)
-    if not os.environ.get("BOLAGSVERKET_CLIENT_SECRET"):
-        print("FEL: BOLAGSVERKET_CLIENT_SECRET saknas i miljön")
-        sys.exit(1)
-
-    # ── Ladda data ────────────────────────────────────────────────────────────
     companies    = load_scb_companies(args.scb_file)
     already_sent = load_already_sent(log_dir)
     print(f"Dubblettskydd: {len(already_sent)} org.nr redan inskickade")
@@ -444,7 +343,6 @@ def main():
 
     state = load_state(state_path)
 
-    # Obearbetade bolag (ej inskickade, ej kollade)
     unchecked = [
         c for c in companies
         if c["orgnr"] not in state and c["orgnr"] not in already_sent
@@ -454,6 +352,7 @@ def main():
         if c["orgnr"] in state
         and state[c["orgnr"]].get("revenue_msek") is not None
         and state[c["orgnr"]]["revenue_msek"] >= args.min_revenue
+        and (args.max_revenue is None or state[c["orgnr"]]["revenue_msek"] <= args.max_revenue)
         and c["orgnr"] not in already_sent
     ]
 
@@ -466,17 +365,18 @@ def main():
         for c in unchecked[:50]:
             print(f"  {c['orgnr']}  {c['company_name'][:50]}  SNI {c['sni']}")
         if already_qualified:
-            print(f"\nRedo att skicka:")
+            print(f"\nRedo att skicka ({len(already_qualified)} st):")
             for c in already_qualified:
                 rev = state[c["orgnr"]]["revenue_msek"]
-                print(f"  {c['orgnr']}  {c['company_name'][:50]}  {rev:.0f} MSEK")
+                email = state[c["orgnr"]].get("email", "")
+                print(f"  {c['orgnr']}  {c['company_name'][:45]}  {rev:.0f} MSEK  {email}")
         return
 
-    # ── Fas 1: Kontrollera omsättning för obearbetade ─────────────────────────
+    # ── Fas 1: Kolla omsättning för ny batch ──────────────────────────────────
     batch = unchecked[:args.batch_size]
     if batch:
         print(f"\n{'─'*60}")
-        print(f"Kontrollerar omsättning för {len(batch)} bolag (batch {args.batch_size})...")
+        print(f"Kollar allabolag.se för {len(batch)} bolag...")
         print(f"{'─'*60}")
 
     newly_qualified = []
@@ -484,39 +384,58 @@ def main():
         orgnr = c["orgnr"]
         name  = c["company_name"]
         print(f"[{i}/{len(batch)}] {name[:50]} ({orgnr})...", end=" ", flush=True)
-        try:
-            rev = lookup_revenue(orgnr)
-        except Exception as exc:
-            print(f"FEL: {exc}")
+
+        info = lookup_company(orgnr)
+
+        if info is None:
+            print("ej hittad")
             state[orgnr] = {"revenue_msek": None, "checked_at": datetime.now().isoformat()}
-            save_state(state, state_path)
-            if i < len(batch):
-                time.sleep(args.delay)
-            continue
-
-        state[orgnr] = {"revenue_msek": rev, "checked_at": datetime.now().isoformat()}
-        save_state(state, state_path)
-
-        if rev is None:
-            print("ingen iXBRL")
-        elif rev >= args.min_revenue and (args.max_revenue is None or rev <= args.max_revenue):
-            print(f"✓ {rev:.0f} MSEK → kvalificerad!")
-            newly_qualified.append({**c, "revenue_msek": rev})
         else:
-            print(f"{rev:.0f} MSEK (under {args.min_revenue})")
+            rev = info["revenue_msek"]
+            state[orgnr] = {
+                "revenue_msek": rev,
+                "phone":        info["phone"],
+                "email":        info["email"],
+                "homepage":     info["homepage"],
+                "employees":    info["employees"],
+                "checked_at":   datetime.now().isoformat(),
+            }
+            if rev is None:
+                print("ingen omsättning")
+            elif rev >= args.min_revenue and (args.max_revenue is None or rev <= args.max_revenue):
+                print(f"✓ {rev:.0f} MSEK → kvalificerad!")
+                if info["email"]:
+                    print(f"    e-post: {info['email']}")
+                newly_qualified.append({**c,
+                    "revenue_msek": rev,
+                    "email": info["email"],
+                    "phone": info["phone"],
+                })
+            else:
+                print(f"{rev:.0f} MSEK")
 
+        save_state(state, state_path)
         if i < len(batch):
             time.sleep(args.delay)
 
     if batch:
         print(f"\nBatch klar. {len(newly_qualified)} nya kvalificerade bolag.")
-        print(f"Obearbetade kvar: {len(unchecked) - len(batch)}")
+        remaining = len(unchecked) - len(batch)
+        if remaining:
+            print(f"Obearbetade kvar: {remaining}")
 
-    # Kombinera kandidater: nykvalificerade + redan kvalificerade
-    candidates = newly_qualified + already_qualified
+    # Kombinera kandidater
+    candidates = newly_qualified[:]
+    for c in already_qualified:
+        s = state[c["orgnr"]]
+        candidates.append({**c,
+            "revenue_msek": s["revenue_msek"],
+            "email":        s.get("email", ""),
+            "phone":        s.get("phone", ""),
+        })
+
     if not candidates:
         print("\nInga bolag att skicka just nu.")
-        print(f"Kör igen för att bearbeta nästa batch av {args.batch_size} bolag.")
         return
 
     print(f"\n{'═'*60}")
@@ -530,40 +449,42 @@ def main():
     for i, c in enumerate(candidates, 1):
         orgnr        = c["orgnr"]
         company_name = c["company_name"]
-        rev          = c.get("revenue_msek") or state.get(orgnr, {}).get("revenue_msek", 0)
-        email        = ""
+        rev          = c.get("revenue_msek", 0) or 0
+        email        = c.get("email", "")
+        phone        = c.get("phone", "")
 
         prefix = f"[{i}/{len(candidates)}] {company_name[:45]} ({orgnr}) {rev:.0f} MSEK"
 
-        if args.enrich:
-            print(f"{prefix} – söker e-post...")
-            email = enrich_email(company_name, orgnr) or ""
-            if email:
-                print(f"    → {email}")
-                stats["enriched"] += 1
+        if not email:
+            if args.enrich:
+                print(f"{prefix} – söker e-post...")
+                email = enrich_email(company_name, orgnr) or ""
+                if email:
+                    print(f"    → {email}")
+                    stats["enriched"] += 1
+                else:
+                    print(f"    → ingen e-post, hoppar över")
+                    stats["no_email"] += 1
+                    log_rows.append({"orgnr": orgnr, "company": company_name,
+                                     "revenue_msek": rev, "result": "no_email"})
+                    continue
             else:
-                print(f"    → ingen e-post, hoppar över")
+                print(f"{prefix} – saknar e-post (kör med --enrich)")
                 stats["no_email"] += 1
                 log_rows.append({"orgnr": orgnr, "company": company_name,
                                  "revenue_msek": rev, "result": "no_email"})
                 continue
-        else:
-            print(f"{prefix} – hoppar över (kör med --enrich för att söka e-post)")
-            stats["no_email"] += 1
-            log_rows.append({"orgnr": orgnr, "company": company_name,
-                             "revenue_msek": rev, "result": "no_email"})
-            continue
 
         if args.dry_run:
-            print(f"    [dry-run] → {email}")
+            print(f"{prefix} – [dry-run] → {email}")
             stats["submitted"] += 1
             log_rows.append({"orgnr": orgnr, "company": company_name, "email": email,
                              "revenue_msek": rev, "sni": c["sni"], "result": "dry_run"})
         else:
             try:
-                result = submit_scan(args.api_url, orgnr, company_name, email)
+                result = submit_scan(args.api_url, orgnr, company_name, email, phone)
                 job_id = result.get("job_id", "?")
-                print(f"    → OK job_id={job_id}")
+                print(f"{prefix} – OK job_id={job_id} → {email}")
                 stats["submitted"] += 1
                 log_rows.append({"orgnr": orgnr, "company": company_name, "email": email,
                                  "revenue_msek": rev, "sni": c["sni"],
@@ -574,13 +495,13 @@ def main():
                     msg = e.response.json().get("error", "")
                 except Exception:
                     pass
-                print(f"    → FEL {e.response.status_code}: {msg}")
+                print(f"{prefix} – FEL {e.response.status_code}: {msg}")
                 stats["errors"] += 1
                 log_rows.append({"orgnr": orgnr, "company": company_name,
                                  "revenue_msek": rev, "result": f"error_{e.response.status_code}",
                                  "detail": msg})
             except Exception as e:
-                print(f"    → FEL: {e}")
+                print(f"{prefix} – FEL: {e}")
                 stats["errors"] += 1
                 log_rows.append({"orgnr": orgnr, "company": company_name,
                                  "revenue_msek": rev, "result": "error", "detail": str(e)})
