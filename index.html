@@ -1058,6 +1058,11 @@
       <ul id="file-list"></ul>
     </div>
 
+    <div class="field" style="margin-top:1rem">
+      <label for="extra-context-input" style="font-size:0.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)">Extra kontext <span style="font-weight:400;opacity:.7;">(valfritt)</span></label>
+      <textarea id="extra-context-input" rows="3" placeholder="T.ex. byter WMS, ökat lageryta med 50%, ökade svinnkostnader…" style="width:100%;padding:0.55rem 0.8rem;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;font-family:inherit;color:var(--text);background:var(--bg);resize:vertical;margin-top:0.3rem"></textarea>
+    </div>
+
     <button class="btn-primary" id="analyze-btn" disabled>
       <span id="btn-spinner" class="spinner"></span>
       <span id="btn-label">Generera Opportunity Scan</span>
@@ -1550,6 +1555,8 @@
 
     const formData = new FormData();
     selectedFiles.forEach(f => formData.append("files", f));
+    const extraCtx = (document.getElementById("extra-context-input")?.value || "").trim();
+    if (extraCtx) formData.append("extra_context", extraCtx);
 
     try {
       const response = await fetch("/analyze", {

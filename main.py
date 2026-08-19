@@ -3615,7 +3615,7 @@ def _db_save_scan(report_markdown: str, scan_json_str: str,
 
 
 @app.post("/analyze")
-async def analyze(files: List[UploadFile] = File(...)):
+async def analyze(files: List[UploadFile] = File(...), extra_context: str = Form("")):
     if not 1 <= len(files) <= 5:
         raise HTTPException(status_code=400, detail="Ladda upp 1–5 årsredovisningar")
 
@@ -3637,7 +3637,7 @@ async def analyze(files: List[UploadFile] = File(...)):
 
         def _run():
             try:
-                _do_analyze(file_data, q)
+                _do_analyze(file_data, q, extra_context=extra_context)
             except Exception as e:
                 q.put(f"\n\n**Oväntat fel:** {e}")
             finally:
@@ -3656,7 +3656,7 @@ async def analyze(files: List[UploadFile] = File(...)):
     return StreamingResponse(stream(), media_type="text/plain; charset=utf-8")
 
 
-def _do_analyze(file_data: list[tuple[str, bytes]], q):
+def _do_analyze(file_data: list[tuple[str, bytes]], q, extra_context: str = ""):
 
     n_files = len(file_data)
     content = []
@@ -3732,6 +3732,14 @@ def _do_analyze(file_data: list[tuple[str, bytes]], q):
     else:
         print("Kunde inte identifiera bolagsnamn — hoppar över webdsökning")
 
+    if extra_context:
+        content.insert(0, {
+            "type": "text",
+            "text": f"<extra_context>\n{extra_context}\n</extra_context>\n"
+                    "Ovanstående extra kontext är tillhandahållen av analytikern. "
+                    "Ta hänsyn till den i analysen.",
+        })
+
     content.append({
         "type": "text",
         "text": (
@@ -3739,6 +3747,7 @@ def _do_analyze(file_data: list[tuple[str, bytes]], q):
             "Identifiera vilket år respektive dokument avser (t₀ = senaste). "
             "Genomför analysen enligt regelverket och generera en komplett Opportunity Scan."
             + (f" Webdata om {company_name} är inkluderad ovan." if web_data else "")
+            + (" Extra kontext från analytikern är inkluderad ovan." if extra_context else "")
         ),
     })
 

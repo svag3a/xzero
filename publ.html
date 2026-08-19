@@ -306,11 +306,6 @@
         <div class="field-error" id="err-email"></div>
       </div>
 
-      <div class="field">
-        <label for="f-context">Extra kontext <span style="font-weight:400;opacity:.6;">(valfritt)</span></label>
-        <textarea id="f-context" placeholder="T.ex. vi håller på att byta WMS, vi har ökat lageryta med 50% senaste året, vi ser ökade svinnkostnader…"></textarea>
-      </div>
-
       <button type="submit" class="btn" id="submit-btn">
         <span class="spinner" id="spinner"></span>
         <span id="btn-label">Beställ gratis scan</span>
@@ -483,17 +478,15 @@
     spinner.style.display = 'block';
     label.textContent = 'Skickar...';
 
-    const orgnr   = normalizeOrgnr(document.getElementById('f-orgnr').value.trim());
-    const name    = document.getElementById('f-name').value.trim();
-    const email   = document.getElementById('f-email').value.trim();
-    const context = document.getElementById('f-context').value.trim();
+    const orgnr = normalizeOrgnr(document.getElementById('f-orgnr').value.trim());
+    const name  = document.getElementById('f-name').value.trim();
+    const email = document.getElementById('f-email').value.trim();
 
     try {
       const res = await fetch('/publ/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orgnr, contact_name: name, contact_email: email,
-                               ...(context && { extra_context: context }) })
+        body: JSON.stringify({ orgnr, contact_name: name, contact_email: email })
       });
       const data = await res.json();
 
