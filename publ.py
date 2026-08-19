@@ -200,6 +200,7 @@ class ScanRequest(BaseModel):
     company_name:  str = ""
     contact_phone: str = ""
     sni_codes:     list = []
+    initial_status: str = "Lead"
 
 
 @router.post("/publ/submit")
@@ -229,13 +230,14 @@ async def publ_submit(req: ScanRequest, background_tasks: BackgroundTasks):
            VALUES (?, ?, ?, ?, 'pending', ?, ?)""",
         (job_id, orgnr, contact_name, contact_email, now, now)
     )
+    initial_status = req.initial_status if req.initial_status in ("Prospekt", "Lead") else "Lead"
     con.execute(
         """INSERT INTO crm_leads
            (id, orgnr, company_name, contact_name, contact_email, contact_phone,
             status, scan_job_id, sni_codes, created_at, updated_at, status_changed_at)
-           VALUES (?, ?, ?, ?, ?, ?, 'Lead', ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (lead_id, orgnr, company_name, contact_name, contact_email, contact_phone,
-         job_id, _json.dumps(req.sni_codes, ensure_ascii=False), now, now, now)
+         initial_status, job_id, _json.dumps(req.sni_codes, ensure_ascii=False), now, now, now)
     )
     con.commit()
     con.close()
