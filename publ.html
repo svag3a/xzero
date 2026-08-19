@@ -98,6 +98,25 @@
     transition: border-color 0.15s, box-shadow 0.15s;
     outline: none;
   }
+  textarea {
+    width: 100%;
+    padding: 0.65rem 0.9rem;
+    border: 1px solid var(--input-border);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-family: "Manrope", sans-serif;
+    color: var(--text);
+    background: var(--input-bg);
+    transition: border-color 0.15s, box-shadow 0.15s;
+    outline: none;
+    resize: vertical;
+    min-height: 90px;
+  }
+  textarea::placeholder { color: var(--text-muted); }
+  textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(56,189,248,.15);
+  }
   input::placeholder { color: var(--text-muted); }
   input:focus {
     border-color: var(--accent);
@@ -287,6 +306,11 @@
         <div class="field-error" id="err-email"></div>
       </div>
 
+      <div class="field">
+        <label for="f-context">Extra kontext <span style="font-weight:400;opacity:.6;">(valfritt)</span></label>
+        <textarea id="f-context" placeholder="T.ex. vi håller på att byta WMS, vi har ökat lageryta med 50% senaste året, vi ser ökade svinnkostnader…"></textarea>
+      </div>
+
       <button type="submit" class="btn" id="submit-btn">
         <span class="spinner" id="spinner"></span>
         <span id="btn-label">Beställ gratis scan</span>
@@ -459,15 +483,17 @@
     spinner.style.display = 'block';
     label.textContent = 'Skickar...';
 
-    const orgnr = normalizeOrgnr(document.getElementById('f-orgnr').value.trim());
-    const name  = document.getElementById('f-name').value.trim();
-    const email = document.getElementById('f-email').value.trim();
+    const orgnr   = normalizeOrgnr(document.getElementById('f-orgnr').value.trim());
+    const name    = document.getElementById('f-name').value.trim();
+    const email   = document.getElementById('f-email').value.trim();
+    const context = document.getElementById('f-context').value.trim();
 
     try {
       const res = await fetch('/publ/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orgnr, contact_name: name, contact_email: email })
+        body: JSON.stringify({ orgnr, contact_name: name, contact_email: email,
+                               ...(context && { extra_context: context }) })
       });
       const data = await res.json();
 

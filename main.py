@@ -3493,7 +3493,7 @@ async def create_action_plan(scan_id: int):
     return StreamingResponse(generate(), media_type="text/plain; charset=utf-8")
 
 
-def _run_bedrock_from_texts(texts: list[tuple[str, str]]) -> str:
+def _run_bedrock_from_texts(texts: list[tuple[str, str]], extra_context: str = "") -> str:
     """
     Kör en Opportunity Scan-analys på föruttagen text (t.ex. iXBRL).
     texts = [(label, text), ...]. Returnerar komplett rapporttext.
@@ -3517,6 +3517,14 @@ def _run_bedrock_from_texts(texts: list[tuple[str, str]]) -> str:
         if web_data:
             content.insert(0, {"type": "text", "text": web_data})
 
+    if extra_context:
+        content.insert(0, {
+            "type": "text",
+            "text": f"<extra_context>\n{extra_context}\n</extra_context>\n"
+                    "Ovanstående extra kontext är tillhandahållen av kontaktpersonen på bolaget. "
+                    "Ta hänsyn till den i analysen.",
+        })
+
     n = len(texts)
     content.append({
         "type": "text",
@@ -3525,6 +3533,7 @@ def _run_bedrock_from_texts(texts: list[tuple[str, str]]) -> str:
             "Identifiera vilket år respektive dokument avser (t₀ = senaste). "
             "Genomför analysen enligt regelverket och generera en komplett Opportunity Scan."
             + (f" Webdata om {company_name} är inkluderad ovan." if web_data else "")
+            + (" Extra kontext från kontaktpersonen är inkluderad ovan." if extra_context else "")
         ),
     })
 

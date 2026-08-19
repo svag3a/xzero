@@ -62,7 +62,7 @@ def _send_email(to: str, subject: str, body: str):
         s.send_message(msg)
 
 
-def _auto_scan_job(job_id: str, orgnr: str, contact_name: str, contact_email: str):
+def _auto_scan_job(job_id: str, orgnr: str, contact_name: str, contact_email: str, extra_context: str = ""):
     """
     Bakgrundstask: hämtar iXBRL från Bolagsverket, kör Bedrock-scan,
     sparar resultatet och uppdaterar scan_job-status.
@@ -107,7 +107,7 @@ def _auto_scan_job(job_id: str, orgnr: str, contact_name: str, contact_email: st
 
         logging.info(f"[auto-scan] {job_id}: {len(texts)} dokument, kör Bedrock")
         _update_job("processing", msg=f"Analyserar {len(texts)} årsredovisning{'ar' if len(texts) > 1 else ''} med AI...")
-        report_text = _run_bedrock_from_texts(texts)
+        report_text = _run_bedrock_from_texts(texts, extra_context=extra_context)
         logging.info(f"[auto-scan] {job_id}: rapport klar ({len(report_text):,} tecken), sparar")
 
         _update_job("processing", msg="Sparar rapport...")
@@ -194,13 +194,14 @@ async def publ_page():
 
 
 class ScanRequest(BaseModel):
-    orgnr:         str
-    contact_name:  str
-    contact_email: str
-    company_name:  str = ""
-    contact_phone: str = ""
-    sni_codes:     list = []
+    orgnr:          str
+    contact_name:   str
+    contact_email:  str
+    company_name:   str = ""
+    contact_phone:  str = ""
+    sni_codes:      list = []
     initial_status: str = "Lead"
+    extra_context:  str = ""
 
 
 @router.post("/publ/submit")
@@ -271,7 +272,7 @@ async def publ_submit(req: ScanRequest, background_tasks: BackgroundTasks):
         except Exception as e:
             logging.warning(f"[publ] user confirmation email failed: {e}")
 
-    background_tasks.add_task(_auto_scan_job, job_id, orgnr, contact_name, contact_email)
+    background_tasks.add_task(_auto_scan_job, job_id, orgnr, contact_name, contact_email, req.extra_context)
 
     return {"job_id": job_id}
 
