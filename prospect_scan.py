@@ -165,6 +165,8 @@ def load_scb_companies(scb_zip_path: Optional[str] = None) -> list:
             orgnr_idx   = header.index("PeOrgNr")
             namn_idx    = header.index("Namn")
             ftgstat_idx = header.index("FtgStat")
+            # Ng2–Ng5 är valfria kolumner
+            ng_extra_idx = [header.index(f"Ng{i}") for i in range(2, 6) if f"Ng{i}" in header]
 
             for line in f:
                 row = line.decode("latin-1", errors="replace").rstrip().split("\t")
@@ -185,10 +187,16 @@ def load_scb_companies(scb_zip_path: Optional[str] = None) -> list:
                 else:
                     continue
 
+                sni_codes = [row[ng1_idx]]
+                for idx in ng_extra_idx:
+                    if idx < len(row) and row[idx] and row[idx] != row[ng1_idx]:
+                        sni_codes.append(row[idx])
+
                 companies.append({
                     "orgnr":        orgnr,
                     "company_name": row[namn_idx],
                     "sni":          row[ng1_idx],
+                    "sni_codes":    sni_codes,
                 })
 
     log.info(f"SCB: {len(companies)} aktiva AB i målbranscher")
@@ -290,7 +298,8 @@ def enrich_email(company_name: str, orgnr: str) -> Optional[str]:
 
 # ── Submission ────────────────────────────────────────────────────────────────
 
-def submit_scan(api_url: str, orgnr: str, company_name: str, email: str, phone: str = "") -> dict:
+def submit_scan(api_url: str, orgnr: str, company_name: str, email: str,
+                phone: str = "", sni_codes: list = []) -> dict:
     resp = requests.post(
         f"{api_url}/publ/submit",
         json={
@@ -299,6 +308,7 @@ def submit_scan(api_url: str, orgnr: str, company_name: str, email: str, phone: 
             "contact_name":  company_name,
             "contact_email": email,
             "contact_phone": phone,
+            "sni_codes":     sni_codes,
         },
         timeout=30,
     )
@@ -482,7 +492,8 @@ def main():
                              "revenue_msek": rev, "sni": c["sni"], "result": "dry_run"})
         else:
             try:
-                result = submit_scan(args.api_url, orgnr, company_name, email, phone)
+                result = submit_scan(args.api_url, orgnr, company_name, email, phone,
+                                     sni_codes=c.get("sni_codes", []))
                 job_id = result.get("job_id", "?")
                 print(f"{prefix} – OK job_id={job_id} → {email}")
                 stats["submitted"] += 1

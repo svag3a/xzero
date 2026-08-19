@@ -180,6 +180,10 @@ def init_db():
     except Exception:
         pass
     try:
+        con.execute("ALTER TABLE crm_leads ADD COLUMN sni_codes TEXT DEFAULT '[]'")
+    except Exception:
+        pass
+    try:
         con.execute("ALTER TABLE scan_jobs ADD COLUMN scan_id INTEGER")
     except Exception:
         pass
@@ -4305,9 +4309,11 @@ class CrmLeadUpdate(BaseModel):
     status:        str | None = None
     substatus:     str | None = None
     scan_id:       int | None = None
+    sni_codes:     list | None = None
 
 
 def _crm_row_to_dict(row) -> dict:
+    import json as _json
     d = dict(row)
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
@@ -4318,6 +4324,10 @@ def _crm_row_to_dict(row) -> dict:
         d["days_in_status"] = (now - changed).days
     except Exception:
         d["days_in_status"] = 0
+    try:
+        d["sni_codes"] = _json.loads(d.get("sni_codes") or "[]")
+    except Exception:
+        d["sni_codes"] = []
     return d
 
 
@@ -4413,6 +4423,7 @@ async def update_crm_lead(lead_id: str, req: CrmLeadUpdate):
     if req.notes         is not None: fields["notes"]         = req.notes
     if req.substatus     is not None: fields["substatus"]     = req.substatus
     if req.scan_id       is not None: fields["scan_id"]       = req.scan_id
+    if req.sni_codes     is not None: fields["sni_codes"]     = json.dumps(req.sni_codes, ensure_ascii=False)
     if req.status is not None:
         if req.status not in CRM_STATUSES:
             con.close()

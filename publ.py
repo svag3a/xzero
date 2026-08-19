@@ -1,3 +1,4 @@
+import json as _json
 import os
 import re
 import uuid
@@ -198,6 +199,7 @@ class ScanRequest(BaseModel):
     contact_email: str
     company_name:  str = ""
     contact_phone: str = ""
+    sni_codes:     list = []
 
 
 @router.post("/publ/submit")
@@ -230,10 +232,10 @@ async def publ_submit(req: ScanRequest, background_tasks: BackgroundTasks):
     con.execute(
         """INSERT INTO crm_leads
            (id, orgnr, company_name, contact_name, contact_email, contact_phone,
-            status, scan_job_id, created_at, updated_at, status_changed_at)
-           VALUES (?, ?, ?, ?, ?, ?, 'Lead', ?, ?, ?, ?)""",
+            status, scan_job_id, sni_codes, created_at, updated_at, status_changed_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'Lead', ?, ?, ?, ?, ?)""",
         (lead_id, orgnr, company_name, contact_name, contact_email, contact_phone,
-         job_id, now, now, now)
+         job_id, _json.dumps(req.sni_codes, ensure_ascii=False), now, now, now)
     )
     con.commit()
     con.close()

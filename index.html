@@ -535,6 +535,14 @@
       font-size: 0.72rem; color: #64748b;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    .crm-card-branches {
+      display: flex; flex-wrap: wrap; gap: 0.2rem; margin: 0.25rem 0 0.1rem;
+    }
+    .crm-branch-tag {
+      font-size: 0.64rem; font-weight: 600; letter-spacing: 0.02em;
+      padding: 0.1rem 0.4rem; border-radius: 3px;
+      background: #ede9fe; color: #5b21b6;
+    }
     .crm-card-age {
       font-size: 0.68rem; color: #94a3b8; margin-top: 0.35rem;
     }
@@ -2623,6 +2631,34 @@
   });
 
   // ── CRM ──────────────────────────────────────────────────────────────────
+  const SNI_NAMES = {
+    "49410": "Åkeri",
+    "52100": "Lager",
+    "52210": "Terminalhantering",
+    "52219": "Landtransport-stöd",
+    "52229": "Sjötransport-stöd",
+    "52240": "Godshantering",
+    "52249": "Flygtransport-stöd",
+    "52290": "Transport-stöd",
+    "46311": "Spannmålsgrossist",
+    "46312": "Animaliegrossist",
+    "46313": "Frukt/grönt-grossist",
+    "46320": "Köttgrossist",
+    "46330": "Mejeri-grossist",
+    "46340": "Drycksgrossist",
+    "46380": "Livsmedelsgrossist",
+    "46390": "Livsmedelsgrossist",
+    "10110": "Charkuteri",
+    "10510": "Mejeriproduktion",
+    "10200": "Fiskberedning",
+  };
+
+  function sniTagsHtml(sniCodes) {
+    if (!sniCodes || !sniCodes.length) return "";
+    const unique = [...new Set(sniCodes.map(c => SNI_NAMES[c] || c))];
+    return `<div class="crm-card-branches">${unique.map(n =>
+      `<span class="crm-branch-tag">${n}</span>`).join("")}</div>`;
+  }
 
   const CRM_STATUSES = [
     "Lead", "Kontaktad", "Möte", "Workshop",
@@ -2704,6 +2740,7 @@
                      onclick="crmOpenPanel('${l.id}')">
           <div class="crm-card-company" title="${company}">${company}</div>
           <div class="crm-card-contact" title="${contact}">${contact}</div>
+          ${sniTagsHtml(l.sni_codes)}
           ${progressHtml}
           <div class="crm-card-age">${age}</div>
         </div>`;
