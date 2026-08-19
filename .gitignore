@@ -16,6 +16,8 @@ scb_bulkfil.zip
 prospect_scan_state.json
 prospect_log_*.json
 import_log_*.json
+enrich_state.json
+enrich_log_*.json
 
 # Node
 node_modules/
