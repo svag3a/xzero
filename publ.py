@@ -215,9 +215,11 @@ async def publ_submit(req: ScanRequest, background_tasks: BackgroundTasks):
     company_name  = req.company_name.strip()
     contact_phone = req.contact_phone.strip()
 
+    initial_status = req.initial_status if req.initial_status in ("Prospekt", "Lead") else "Lead"
+
     if not contact_name:
         return JSONResponse({"error": "Namn saknas"}, status_code=422)
-    if not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', contact_email):
+    if initial_status != "Prospekt" and not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', contact_email):
         return JSONResponse({"error": "Ogiltig e-postadress"}, status_code=422)
 
     job_id  = str(uuid.uuid4())[:8].upper()
@@ -230,7 +232,6 @@ async def publ_submit(req: ScanRequest, background_tasks: BackgroundTasks):
            VALUES (?, ?, ?, ?, 'pending', ?, ?)""",
         (job_id, orgnr, contact_name, contact_email, now, now)
     )
-    initial_status = req.initial_status if req.initial_status in ("Prospekt", "Lead") else "Lead"
     con.execute(
         """INSERT INTO crm_leads
            (id, orgnr, company_name, contact_name, contact_email, contact_phone,
@@ -254,20 +255,21 @@ async def publ_submit(req: ScanRequest, background_tasks: BackgroundTasks):
         except Exception as e:
             logging.warning(f"[publ] team email failed: {e}")
 
-    # Confirm to user
+    # Confirm to user (bara om giltig e-post finns)
     first = contact_name.split()[0] if contact_name else ""
-    try:
-        _send_email(
-            contact_email,
-            "Vi har tagit emot din förfrågan – xZero",
-            f"Hej {first},\n\n"
-            f"Tack för din förfrågan! Vi analyserar org.nr {orgnr} och återkommer "
-            f"med din Opportunity Scan inom 24 timmar.\n\n"
-            f"Referensnummer: {job_id}\n\n"
-            f"Med vänliga hälsningar,\nxZero"
-        )
-    except Exception as e:
-        logging.warning(f"[publ] user confirmation email failed: {e}")
+    if re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', contact_email):
+        try:
+            _send_email(
+                contact_email,
+                "Vi har tagit emot din förfrågan – xZero",
+                f"Hej {first},\n\n"
+                f"Tack för din förfrågan! Vi analyserar org.nr {orgnr} och återkommer "
+                f"med din Opportunity Scan inom 24 timmar.\n\n"
+                f"Referensnummer: {job_id}\n\n"
+                f"Med vänliga hälsningar,\nxZero"
+            )
+        except Exception as e:
+            logging.warning(f"[publ] user confirmation email failed: {e}")
 
     background_tasks.add_task(_auto_scan_job, job_id, orgnr, contact_name, contact_email)
 

@@ -466,28 +466,18 @@ def main():
 
         prefix = f"[{i}/{len(candidates)}] {company_name[:45]} ({orgnr}) {rev:.0f} MSEK"
 
-        if not email:
-            if args.enrich:
-                print(f"{prefix} – söker e-post...")
-                email = enrich_email(company_name, orgnr) or ""
-                if email:
-                    print(f"    → {email}")
-                    stats["enriched"] += 1
-                else:
-                    print(f"    → ingen e-post, hoppar över")
-                    stats["no_email"] += 1
-                    log_rows.append({"orgnr": orgnr, "company": company_name,
-                                     "revenue_msek": rev, "result": "no_email"})
-                    continue
+        if not email and args.enrich:
+            print(f"{prefix} – söker e-post...", end=" ", flush=True)
+            email = enrich_email(company_name, orgnr) or ""
+            if email:
+                print(f"→ {email}")
+                stats["enriched"] += 1
             else:
-                print(f"{prefix} – saknar e-post (kör med --enrich)")
+                print("→ ingen e-post")
                 stats["no_email"] += 1
-                log_rows.append({"orgnr": orgnr, "company": company_name,
-                                 "revenue_msek": rev, "result": "no_email"})
-                continue
 
         if args.dry_run:
-            print(f"{prefix} – [dry-run] → {email}")
+            print(f"{prefix} – [dry-run] → {email or '(ingen mail)'}")
             stats["submitted"] += 1
             log_rows.append({"orgnr": orgnr, "company": company_name, "email": email,
                              "revenue_msek": rev, "sni": c["sni"], "result": "dry_run"})
@@ -496,7 +486,7 @@ def main():
                 result = submit_scan(args.api_url, orgnr, company_name, email, phone,
                                      sni_codes=c.get("sni_codes", []))
                 job_id = result.get("job_id", "?")
-                print(f"{prefix} – OK job_id={job_id} → {email}")
+                print(f"{prefix} – OK job_id={job_id} → {email or '(ingen mail)'}")
                 stats["submitted"] += 1
                 log_rows.append({"orgnr": orgnr, "company": company_name, "email": email,
                                  "revenue_msek": rev, "sni": c["sni"],
