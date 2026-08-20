@@ -226,7 +226,8 @@ def main():
     parser.add_argument("--api-url",    default="http://13.48.24.83")
     parser.add_argument("--password",   default=os.environ.get("APP_PASSWORD", ""),
                         help="App-lösenord (eller sätt APP_PASSWORD i env)")
-    parser.add_argument("--batch-size", type=int, default=10)
+    parser.add_argument("--batch-size", type=int, default=0,
+                        help="Max antal att berika (default: 0 = alla)")
     parser.add_argument("--dry-run",    action="store_true")
     parser.add_argument("--reset",      action="store_true", help="Nollställ state")
     args = parser.parse_args()
@@ -257,7 +258,7 @@ def main():
     print(f"Behöver enrichment: {len(to_enrich)}")
     print(f"Redan behandlade:   {len([l for l in prospects if l['id'] in state])}")
 
-    batch = to_enrich[:args.batch_size]
+    batch = to_enrich if args.batch_size == 0 else to_enrich[:args.batch_size]
     if not batch:
         print("\nInget att berika just nu.")
         return
