@@ -279,7 +279,19 @@ def main():
                         help="Lista bolag ej kollade och avsluta")
     parser.add_argument("--reset-state",     action="store_true",
                         help="Nollställ state och börja om")
+    parser.add_argument("--sni",             default=None,
+                        help="Kommaseparerade SNI-koder att prospektera, t.ex. 49410,52100")
     args = parser.parse_args()
+
+    if args.sni:
+        custom_sni = {s.strip() for s in args.sni.split(",") if s.strip()}
+        unknown = custom_sni - TARGET_SNI
+        if unknown:
+            print(f"Varning: dessa SNI-koder finns inte i TARGET_SNI och läggs till: {unknown}")
+        # Monkeypatch the module-level set used by load_scb_companies
+        TARGET_SNI.clear()
+        TARGET_SNI.update(custom_sni)
+        print(f"SNI-filter: {sorted(TARGET_SNI)}")
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     state_path = args.state_file or os.path.join(script_dir, "prospect_scan_state.json")
