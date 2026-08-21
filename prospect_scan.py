@@ -268,7 +268,7 @@ def main():
                         help="Lägsta omsättning MSEK (default: 150)")
     parser.add_argument("--max-revenue",     type=float, default=None)
     parser.add_argument("--batch-size",      type=int,   default=30,
-                        help="Bolag att kolla per körning (default: 30)")
+                        help="Bolag att kolla per körning (default: 30, 0 = alla)")
     parser.add_argument("--dry-run",         action="store_true")
     parser.add_argument("--delay",           type=float, default=2.0,
                         help="Sekunder mellan allabolag-anrop (default: 2.0)")
@@ -337,7 +337,7 @@ def main():
         return
 
     # ── Fas 1: Kolla omsättning för ny batch ──────────────────────────────────
-    batch = unchecked[:args.batch_size]
+    batch = unchecked if args.batch_size == 0 else unchecked[:args.batch_size]
     if batch:
         print(f"\n{'─'*60}")
         print(f"Kollar allabolag.se för {len(batch)} bolag...")
