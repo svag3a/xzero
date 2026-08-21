@@ -12,7 +12,7 @@ build/
 scans.db
 
 # Prospekt-data (stora filer, skapas lokalt vid körning)
-scb_bulkfil.zip
+scb_bulkfil*.zip
 prospect_scan_state.json
 prospect_log_*.json
 import_log_*.json

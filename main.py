@@ -219,6 +219,22 @@ def init_db():
             con.commit()
         except Exception:
             pass
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS scb_companies (
+            orgnr        TEXT PRIMARY KEY,
+            company_name TEXT NOT NULL,
+            primary_sni  TEXT,
+            sni_codes    TEXT DEFAULT '[]',
+            active       INTEGER DEFAULT 1,
+            last_seen_at TEXT,
+            created_at   TEXT
+        )
+    """)
+    try:
+        con.execute("CREATE INDEX IF NOT EXISTS idx_scb_primary_sni ON scb_companies(primary_sni)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_scb_active ON scb_companies(active)")
+    except Exception:
+        pass
     con.commit()
     con.close()
 
@@ -4465,3 +4481,158 @@ async def delete_crm_lead(lead_id: str):
     con.execute("DELETE FROM crm_leads WHERE id=?", (lead_id,))
     con.commit()
     con.close()
+
+
+# ── SCB Companies ─────────────────────────────────────────────────────────────
+
+_SCB_IMPORT_TOKEN = os.environ.get("SCB_IMPORT_TOKEN", "")
+
+
+def _check_scb_token(request: Request):
+    if not _SCB_IMPORT_TOKEN:
+        raise HTTPException(403, "SCB_IMPORT_TOKEN ej konfigurerad på servern")
+    if request.headers.get("X-Import-Token", "") != _SCB_IMPORT_TOKEN:
+        raise HTTPException(403, "Ogiltig import-token")
+
+
+class ScbImportRequest(BaseModel):
+    companies: list   # [{orgnr, company_name, primary_sni, sni_codes}, ...]
+    sync_at: str      # ISO timestamp — alla bolag i denna batch uppdaterar last_seen_at
+
+
+class ScbFinalizeRequest(BaseModel):
+    sync_at: str      # Deaktivera bolag vars last_seen_at är äldre än detta
+
+
+@app.post("/api/scb/import")
+async def scb_import(req: ScbImportRequest, request: Request):
+    _check_scb_token(request)
+    con = sqlite3.connect(DB_PATH)
+    try:
+        con.execute("BEGIN")
+        for c in req.companies:
+            orgnr = c.get("orgnr", "").strip()
+            if not orgnr:
+                continue
+            sni_codes = c.get("sni_codes", [])
+            con.execute("""
+                INSERT INTO scb_companies (orgnr, company_name, primary_sni, sni_codes, active, last_seen_at, created_at)
+                VALUES (?, ?, ?, ?, 1, ?, COALESCE((SELECT created_at FROM scb_companies WHERE orgnr=?), ?))
+                ON CONFLICT(orgnr) DO UPDATE SET
+                    company_name = excluded.company_name,
+                    primary_sni  = excluded.primary_sni,
+                    sni_codes    = excluded.sni_codes,
+                    active       = 1,
+                    last_seen_at = excluded.last_seen_at
+            """, (
+                orgnr,
+                c.get("company_name", "").strip(),
+                c.get("primary_sni", ""),
+                json.dumps(sni_codes, ensure_ascii=False),
+                req.sync_at,
+                orgnr,
+                req.sync_at,
+            ))
+        con.execute("COMMIT")
+    except Exception as e:
+        con.execute("ROLLBACK")
+        con.close()
+        raise HTTPException(500, str(e))
+    con.close()
+    return {"imported": len(req.companies)}
+
+
+@app.post("/api/scb/finalize")
+async def scb_finalize(req: ScbFinalizeRequest, request: Request):
+    _check_scb_token(request)
+    con = sqlite3.connect(DB_PATH)
+    result = con.execute(
+        "UPDATE scb_companies SET active=0 WHERE last_seen_at < ? OR last_seen_at IS NULL",
+        (req.sync_at,),
+    )
+    deactivated = result.rowcount
+    con.commit()
+    con.close()
+    return {"deactivated": deactivated}
+
+
+@app.get("/api/scb/companies")
+async def scb_companies(
+    sni: str = "",
+    active: int = 1,
+    prospected: str = "all",   # "yes" | "no" | "all"
+    search: str = "",
+    limit: int = 100,
+    offset: int = 0,
+):
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+
+    conditions = ["s.active = ?"]
+    params: list = [active]
+
+    if sni:
+        sni_list = [s.strip() for s in sni.split(",") if s.strip()]
+        placeholders = ",".join("?" * len(sni_list))
+        conditions.append(f"s.primary_sni IN ({placeholders})")
+        params.extend(sni_list)
+
+    if search:
+        conditions.append("s.company_name LIKE ?")
+        params.append(f"%{search}%")
+
+    where = " AND ".join(conditions)
+
+    if prospected == "yes":
+        join = "INNER JOIN crm_leads cl ON cl.orgnr = s.orgnr"
+    elif prospected == "no":
+        join = "LEFT JOIN crm_leads cl ON cl.orgnr = s.orgnr"
+        where += " AND cl.orgnr IS NULL"
+    else:
+        join = "LEFT JOIN crm_leads cl ON cl.orgnr = s.orgnr"
+
+    count_row = con.execute(
+        f"SELECT COUNT(DISTINCT s.orgnr) FROM scb_companies s {join} WHERE {where}",
+        params,
+    ).fetchone()
+    total = count_row[0] if count_row else 0
+
+    rows = con.execute(
+        f"""SELECT s.*, cl.id AS lead_id, cl.status AS lead_status
+            FROM scb_companies s {join}
+            WHERE {where}
+            GROUP BY s.orgnr
+            ORDER BY s.company_name
+            LIMIT ? OFFSET ?""",
+        params + [limit, offset],
+    ).fetchall()
+    con.close()
+
+    companies = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["sni_codes"] = json.loads(d.get("sni_codes") or "[]")
+        except Exception:
+            d["sni_codes"] = []
+        companies.append(d)
+
+    return {"total": total, "limit": limit, "offset": offset, "companies": companies}
+
+
+@app.get("/api/scb/stats")
+async def scb_stats():
+    con = sqlite3.connect(DB_PATH)
+    total    = con.execute("SELECT COUNT(*) FROM scb_companies WHERE active=1").fetchone()[0]
+    by_sni   = con.execute(
+        "SELECT primary_sni, COUNT(*) as n FROM scb_companies WHERE active=1 GROUP BY primary_sni ORDER BY n DESC LIMIT 30"
+    ).fetchall()
+    last_sync = con.execute(
+        "SELECT MAX(last_seen_at) FROM scb_companies"
+    ).fetchone()[0]
+    con.close()
+    return {
+        "total_active": total,
+        "last_sync": last_sync,
+        "by_sni": [{"sni": r[0], "count": r[1]} for r in by_sni],
+    }

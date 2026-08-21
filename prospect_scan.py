@@ -136,6 +136,44 @@ def lookup_company(orgnr: str) -> Optional[dict]:
     }
 
 
+# ── SCB via app-databas ───────────────────────────────────────────────────────
+
+def load_companies_from_db(api_url: str, password: str, sni_filter: set) -> list:
+    """Hämtar aktiva bolag från /api/scb/companies (ej redan i CRM)."""
+    sess = requests.Session()
+    if password:
+        resp = sess.post(f"{api_url}/login",
+                         data={"password": password, "next": "/"},
+                         allow_redirects=False, timeout=15)
+        if resp.status_code not in (302, 303):
+            raise RuntimeError(f"Login misslyckades (HTTP {resp.status_code})")
+
+    sni_param = ",".join(sorted(sni_filter)) if sni_filter else ""
+    companies = []
+    offset = 0
+    limit = 500
+    while True:
+        params = {"active": 1, "prospected": "no", "limit": limit, "offset": offset}
+        if sni_param:
+            params["sni"] = sni_param
+        resp = sess.get(f"{api_url}/api/scb/companies", params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        batch = data.get("companies", [])
+        for c in batch:
+            companies.append({
+                "orgnr":        c["orgnr"],
+                "company_name": c["company_name"],
+                "sni":          c.get("primary_sni", ""),
+                "sni_codes":    c.get("sni_codes") or [],
+            })
+        if len(batch) < limit:
+            break
+        offset += limit
+    log.info(f"DB: {len(companies)} bolag ej prospekterade")
+    return companies
+
+
 # ── SCB-fil ───────────────────────────────────────────────────────────────────
 
 def load_scb_companies(scb_zip_path: Optional[str] = None) -> list:
@@ -281,6 +319,10 @@ def main():
                         help="Nollställ state och börja om")
     parser.add_argument("--sni",             default=None,
                         help="Kommaseparerade SNI-koder att prospektera, t.ex. 49410,52100")
+    parser.add_argument("--from-db",         action="store_true",
+                        help="Läs bolag från app-databasen via /api/scb/companies istället för SCB-zip")
+    parser.add_argument("--password",        default=os.environ.get("APP_PASSWORD", ""),
+                        help="App-lösenord för --from-db (eller APP_PASSWORD i env)")
     args = parser.parse_args()
 
     if args.sni:
@@ -297,9 +339,14 @@ def main():
     state_path = args.state_file or os.path.join(script_dir, "prospect_scan_state.json")
     log_dir    = script_dir
 
-    companies    = load_scb_companies(args.scb_file)
-    already_sent = load_already_sent(log_dir)
-    print(f"Dubblettskydd: {len(already_sent)} org.nr redan inskickade")
+    if args.from_db:
+        companies    = load_companies_from_db(args.api_url, args.password, TARGET_SNI)
+        already_sent = set()  # DB-läget filtrerar redan bort prospekterade via prospected=no
+        print(f"Källa: app-databasen ({len(companies)} bolag ej prospekterade)")
+    else:
+        companies    = load_scb_companies(args.scb_file)
+        already_sent = load_already_sent(log_dir)
+        print(f"Dubblettskydd: {len(already_sent)} org.nr redan inskickade")
 
     if args.reset_state and os.path.exists(state_path):
         os.remove(state_path)
